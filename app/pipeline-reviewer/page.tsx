@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
 import { parsePipelineXlsx } from '@/lib/pipeline-reviewer/parse';
 import { applyFilters } from '@/lib/pipeline-reviewer/filter';
 import {
@@ -9,7 +10,6 @@ import {
 } from '@/lib/pipeline-reviewer/compute';
 import { EMPTY_FILTERS, type Filters, type ParseResult } from '@/lib/pipeline-reviewer/types';
 
-import { FileDrop } from '@/components/pipeline-reviewer/file-drop';
 import { FilterBar } from '@/components/pipeline-reviewer/filter-bar';
 import { SectionCard } from '@/components/pipeline-reviewer/section-card';
 import { KpiGrid } from '@/components/pipeline-reviewer/kpi-grid';
@@ -23,29 +23,48 @@ import { StuckDealsTable } from '@/components/pipeline-reviewer/stuck-deals-tabl
 
 const NO_TIMELINE_OPTS: TimelineOpts = { recencyExclusionDays: 0, startDate: null, endDate: null };
 
+type LoadState =
+  | { tag: 'loading' }
+  | { tag: 'no-upload' }
+  | { tag: 'error'; message: string }
+  | { tag: 'ready'; parsed: ParseResult };
+
 export default function PipelineReviewerPage() {
-  const [parsed, setParsed] = useState<ParseResult | null>(null);
+  const [load, setLoad] = useState<LoadState>({ tag: 'loading' });
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
   const [ahjOpts, setAhjOpts] = useState<TimelineOpts>(NO_TIMELINE_OPTS);
   const [branchOpts, setBranchOpts] = useState<TimelineOpts>(NO_TIMELINE_OPTS);
 
-  function handleFile(file: File) {
-    setError(null);
-    start(async () => {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       try {
-        const buf = await file.arrayBuffer();
-        const result = await parsePipelineXlsx(buf, file.name, file.lastModified);
-        setParsed(result);
-        setFilters(EMPTY_FILTERS);
+        const res = await fetch('/api/pipeline-reviewer/file', { cache: 'no-store' });
+        if (res.status === 404) {
+          if (!cancelled) setLoad({ tag: 'no-upload' });
+          return;
+        }
+        if (!res.ok) {
+          throw new Error(`Could not fetch the latest upload (HTTP ${res.status}).`);
+        }
+        const fileNameRaw = res.headers.get('x-original-filename') ?? 'upload.xlsx';
+        const fileName = decodeURIComponent(fileNameRaw);
+        const uploadedAt = res.headers.get('x-uploaded-at');
+        const fallbackMs = uploadedAt ? Date.parse(uploadedAt) || Date.now() : Date.now();
+        const buf = await res.arrayBuffer();
+        const result = await parsePipelineXlsx(buf, fileName, fallbackMs);
+        if (!cancelled) setLoad({ tag: 'ready', parsed: result });
       } catch (err) {
-        console.error('[pipeline-reviewer] parse failed:', err);
-        setError(err instanceof Error ? err.message : 'Could not parse the file.');
-        setParsed(null);
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Could not load the latest upload.';
+        console.error('[pipeline-reviewer] load failed:', err);
+        setLoad({ tag: 'error', message });
       }
-    });
-  }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const parsed = load.tag === 'ready' ? load.parsed : null;
 
   const filtered = useMemo(
     () => (parsed ? applyFilters(parsed.deals, filters) : []),
@@ -79,21 +98,24 @@ export default function PipelineReviewerPage() {
         {parsed ? (
           <p className="text-sm text-[var(--muted)] mt-1.5">
             As of {parsed.asOf.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}{' '}
-            · {parsed.deals.length.toLocaleString()} total deals · IQR-based cycle times.
+            · {parsed.deals.length.toLocaleString()} total deals · IQR-based cycle times · Reading the latest{' '}
+            <Link href="/upload" className="underline hover:text-[var(--ink)]">Jobflo upload</Link>.
           </p>
         ) : (
           <p className="text-sm text-[var(--muted)] mt-1.5">
-            Upload a Jobflo customer export to slice pipeline performance by Sales Team, Branch, Utility, and AHJ.
+            Slice pipeline performance from your latest{' '}
+            <Link href="/upload" className="underline hover:text-[var(--ink)]">Jobflo upload</Link>{' '}
+            by Sales Team, Branch, Utility, and AHJ.
           </p>
         )}
       </div>
 
-      {!parsed ? (
-        <FileDrop onFile={handleFile} pending={pending} error={error} />
-      ) : (
-        <>
-          <FileDrop onFile={handleFile} pending={pending} error={error} />
+      {load.tag === 'loading' && <LoadingPanel />}
+      {load.tag === 'no-upload' && <NoUploadPanel />}
+      {load.tag === 'error' && <ErrorPanel message={load.message} />}
 
+      {parsed && (
+        <>
           <FilterBar
             options={{
               organizations: parsed.organizations,
@@ -170,6 +192,37 @@ export default function PipelineReviewerPage() {
           </SectionCard>
         </>
       )}
+    </div>
+  );
+}
+
+function LoadingPanel() {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-10 text-center anim-fade-in">
+      <div className="text-sm text-[var(--muted)]">Loading the latest Jobflo upload…</div>
+    </div>
+  );
+}
+
+function NoUploadPanel() {
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] p-10 text-center anim-fade-rise">
+      <div className="text-sm font-medium text-[var(--ink)]">No Jobflo upload yet.</div>
+      <div className="text-xs text-[var(--muted)] mt-1.5">
+        Drop a customer export on the{' '}
+        <Link href="/upload" className="underline text-[var(--brand-cyan)] hover:text-[var(--ink)]">
+          Upload page
+        </Link>{' '}
+        and Pipeline Reviewer will read it from there.
+      </div>
+    </div>
+  );
+}
+
+function ErrorPanel({ message }: { message: string }) {
+  return (
+    <div className="rounded-2xl border border-rose-200 bg-rose-50 text-rose-800 p-5 text-sm anim-fade-in">
+      {message}
     </div>
   );
 }

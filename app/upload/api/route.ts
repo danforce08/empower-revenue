@@ -71,6 +71,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
+  // Archive the raw xlsx as the canonical "latest" upload so Pipeline Reviewer
+  // can read it back without a second drag-and-drop. Wipe any prior file under
+  // `latest/` first so we keep exactly one xlsx there with its original
+  // filename intact (Pipeline Reviewer parses customers_YYYY-MM-DD_*.xlsx for
+  // its AS_OF anchor).
+  try {
+    const { data: existing } = await supabase.storage.from('jobflo-uploads').list('latest');
+    if (existing && existing.length) {
+      await supabase.storage
+        .from('jobflo-uploads')
+        .remove(existing.map((f) => `latest/${f.name}`));
+    }
+    const { error: archiveErr } = await supabase.storage
+      .from('jobflo-uploads')
+      .upload(`latest/${fileName}`, buffer, {
+        contentType:
+          fileName.toLowerCase().endsWith('.csv')
+            ? 'text/csv'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        upsert: true,
+      });
+    if (archiveErr) {
+      console.warn('[upload] latest archive failed:', archiveErr.message);
+    }
+  } catch (e) {
+    console.warn('[upload] latest archive threw:', e);
+  }
+
   const buckets = parsed.buckets.filter(
     (b) => !b.branch || !SKIP_BRANCHES.has(b.branch.toLowerCase().trim()),
   );
