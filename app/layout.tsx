@@ -64,6 +64,7 @@ export default async function RootLayout({
                   <NavLink href="/enter">Quick Enter</NavLink>
                   <NavLink href="/forecast">Forecast</NavLink>
                   <NavLink href="/sales-context">Sales Context</NavLink>
+                  <NavLink href="/pipeline-reviewer">Pipeline Reviewer</NavLink>
                   <NavLink href="/upload">Upload</NavLink>
                   <NavLink href="/settings">Settings</NavLink>
                 </nav>

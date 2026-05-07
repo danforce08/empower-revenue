@@ -10,6 +10,7 @@ const LINKS = [
   { href: '/enter',          label: 'Quick Enter' },
   { href: '/forecast',       label: 'Forecast' },
   { href: '/sales-context',  label: 'Sales Context' },
+  { href: '/pipeline-reviewer', label: 'Pipeline Reviewer' },
   { href: '/upload',         label: 'Upload' },
   { href: '/settings',       label: 'Settings' },
 ];
