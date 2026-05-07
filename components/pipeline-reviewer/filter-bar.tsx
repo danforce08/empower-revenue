@@ -24,7 +24,7 @@ export function FilterBar({
     value.soldTo;
 
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 sm:px-5 py-4 anim-fade-rise">
+    <div className="relative z-40 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 sm:px-5 py-4 anim-fade-rise">
       <div className="flex flex-wrap items-end gap-3">
         <MultiSelect
           label="Sales Team"
