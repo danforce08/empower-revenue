@@ -1,0 +1,725 @@
+import Link from 'next/link';
+import { getSupabaseServer } from '@/lib/supabase/server';
+import {
+  isoDate,
+  monthStart,
+  mostRecentSunday,
+  parseIsoDate,
+  previousWeek,
+  quarterStart,
+  weekStart,
+  yearStart,
+} from '@/lib/periods';
+import { formatCount, formatCurrency } from '@/lib/cell-format';
+import { rollupMetrics, rowsInRange } from '@/lib/rollups';
+import type { Channel, MetricRow } from '@/lib/types';
+import { WeekPicker } from '@/components/week-picker';
+
+// Per-channel revenue per install fallbacks, sourced from the Quantum 250x28
+// sheet's Average Contract Value column. Used when no active scenario is
+// configured in the forecast tool.
+const REVENUE_PER_INSTALL_FALLBACK: Record<string, number> = {
+  total_sales: 40_000,   // Solar + Storage
+  battery_only: 25_000,  // Storage Only
+  roof: 19_000,          // Roofing
+  hvac: 21_000,          // HVAC New Install
+};
+
+// Annual revenue target fallback. Used when no active scenario exists.
+const ANNUAL_REVENUE_TARGET_FALLBACK = 115_000_000;
+
+const ONE_DAY_MS = 86_400_000;
+
+// Defensive read-time normalization for the org leaderboard. Older buckets
+// in the DB store lowercase org labels (`nusun`, `ion solar`) and a few
+// garbage values (`ar distribution`). New parser writes are already title-
+// cased + filtered, but until those rows age out we clean up here.
+const ORG_DISPLAY_OVERRIDES: Record<string, string> = {
+  'empower x': 'Empower X',
+  'empowerx': 'Empower X',
+  'empower home services': 'Empower X',
+  'empower services': 'Empower X',
+  'call center': 'Empower X',
+};
+
+export const dynamic = 'force-dynamic';
+
+type PageProps = { searchParams: Promise<{ week?: string }> };
+
+/**
+ * "Dashboard" page (per Dan + David's original meeting). Sits alongside the
+ * Weekly Review at `/`. This page is the home for sales-activity metrics:
+ *   - Active reps and Deals/active rep (from Jobflo's `unique_reps` arrays)
+ *   - New reps and New dealers (from a Google Sheet — wired in Phase B)
+ */
+export default async function DashboardPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const today = new Date();
+  const weekEndingDate = params.week ? parseIsoDate(params.week) : mostRecentSunday();
+  // Anchor for "This Week" / MTD / QTD / YTD. When the picker is at a past
+  // Sunday but today is later in the week, use today so the cumulative
+  // periods include real-time activity. The picker's only effect on those
+  // cards is for backward-looking what-ifs.
+  const anchor = today > weekEndingDate ? today : weekEndingDate;
+  const thisWeekStart = weekStart(anchor);
+  const lastWeek = previousWeek(thisWeekStart);
+  const mtdStart = monthStart(anchor);
+  const qtdStart = quarterStart(anchor);
+  const ytdStart = yearStart(anchor);
+  const weekEndingIso = isoDate(weekEndingDate);
+  const thisWeekStartIso = isoDate(thisWeekStart);
+  const lastWeekStartIso = isoDate(lastWeek.start);
+  const lastWeekEndIso = isoDate(lastWeek.end);
+  const mtdStartIso = isoDate(mtdStart);
+  const qtdStartIso = isoDate(qtdStart);
+  const ytdStartIso = isoDate(ytdStart);
+  const cumulativeEndIso = isoDate(anchor);
+
+  const supabase = await getSupabaseServer();
+  const [channelsRes, metricsRes, recruitmentRes, dailyRepsRes, scenarioRes] = await Promise.all([
+    supabase.from('channels').select('*').order('sort_order'),
+    supabase
+      .from('metrics')
+      .select('*')
+      .gte('period_end', isoDate(ytdStart))
+      .lte('period_start', cumulativeEndIso),
+    supabase
+      .from('weekly_recruitment')
+      .select('period_start, period_end, new_reps, new_dealers')
+      .order('period_start'),
+    supabase
+      .from('daily_rep_activity')
+      .select('rep_name, activity_date')
+      .gte('activity_date', ytdStartIso)
+      .lte('activity_date', cumulativeEndIso)
+      // Override Supabase's default 1000-row cap. YTD activity grows past
+      // that easily; without this, late-alphabetical reps (and recent dates)
+      // get silently clipped, which made MTD active reps render 0.
+      .range(0, 99999),
+    // Active forecast scenario — drives revenue per install + annual target
+    // so Dashboard stays in sync with whatever's configured on the forecast
+    // page. Falls back to in-code constants when no scenario is marked.
+    supabase
+      .from('scenarios')
+      .select('scenario_data')
+      .eq('is_active_target', true)
+      .maybeSingle(),
+  ]);
+
+  const channels = (channelsRes.data ?? []) as Channel[];
+  const metrics = (metricsRes.data ?? []) as MetricRow[];
+  const recruitment = (recruitmentRes.data ?? []) as Array<{
+    period_start: string;
+    period_end: string;
+    new_reps: number;
+    new_dealers: number;
+  }>;
+  const dailyReps = (dailyRepsRes.data ?? []) as Array<{
+    rep_name: string;
+    activity_date: string;
+  }>;
+
+  // Resolve revenue assumptions from the active forecast scenario; fall back
+  // to in-code constants if none is marked active.
+  const scenarioData = (scenarioRes.data?.scenario_data ?? null) as null | {
+    activeReps?: number;
+    dealsPerRep?: number;
+    pullThrough?: number;
+    revenuePerInstall?: number;
+  };
+  const flatRate = scenarioData?.revenuePerInstall;
+  const REVENUE_PER_INSTALL: Record<string, number> = flatRate
+    ? { total_sales: flatRate, battery_only: flatRate, roof: flatRate, hvac: flatRate }
+    : REVENUE_PER_INSTALL_FALLBACK;
+  const annualTargetFromScenario =
+    scenarioData?.activeReps && scenarioData?.dealsPerRep && scenarioData?.pullThrough && scenarioData?.revenuePerInstall
+      ? scenarioData.activeReps *
+        scenarioData.dealsPerRep *
+        12 *
+        (scenarioData.pullThrough / 100) *
+        scenarioData.revenuePerInstall
+      : null;
+  const ANNUAL_REVENUE_TARGET = annualTargetFromScenario ?? ANNUAL_REVENUE_TARGET_FALLBACK;
+
+  // The Jobflo parser attaches distinct-rep arrays to the `total_sales`
+  // channel buckets across all qualifying deal types (excluding Labor Only
+  // and IP Takeovers).
+  const totalSalesChannel = channels.find((c) => c.key === 'total_sales');
+  const tsRows = totalSalesChannel
+    ? metrics.filter((m) => m.channel_id === totalSalesChannel.id)
+    : [];
+
+  function activeReps(start: string, end: string): number {
+    // Boundary-accurate: count distinct reps whose activity_date falls in
+    // [start, end] using the daily_rep_activity table. No more weekly
+    // bucket spillover — a rep active only Apr 27-30 won't count toward
+    // MTD May 1-6.
+    const seen = new Set<string>();
+    for (const r of dailyReps) {
+      if (r.activity_date >= start && r.activity_date <= end) {
+        seen.add(r.rep_name);
+      }
+    }
+    return seen.size;
+  }
+
+  // Active rep counts (distinct from any bucket overlapping the window).
+  // Deals come from the same production() totals the Production cards use,
+  // so the two sections agree. "deals/rep" is computed against the
+  // cross-channel deal total Dan thinks of, not just solar.
+  const mtdActiveReps = activeReps(mtdStartIso, cumulativeEndIso);
+  const qtdActiveReps = activeReps(qtdStartIso, cumulativeEndIso);
+  const ytdActiveReps = activeReps(ytdStartIso, cumulativeEndIso);
+  const dealsPerRep = (reps: number, deals: number) => (reps > 0 ? deals / reps : 0);
+
+  // By-dealer-org leaderboard. The parser emits per-org deal counts on the
+  // total_sales bucket as `org__<org>` numeric metrics, summed naturally by
+  // rollupMetrics across the period.
+  function orgLeaderboard(start: string, end: string): Array<{ org: string; deals: number }> {
+    if (!totalSalesChannel) return [];
+    // Aggregate org__* keys with proration so boundary-week buckets don't
+    // inflate the totals. Older data in the DB still has lowercase org
+    // labels and a few garbage entries (e.g. `ar distribution`); normalize
+    // and filter at read-time so the leaderboard renders cleanly without a
+    // re-upload.
+    const rows = rowsInRange(tsRows, start, end);
+    const totals = new Map<string, number>();
+    for (const row of rows) {
+      const w = bucketWeight(row.period_start, row.period_end, start, end);
+      if (w <= 0) continue;
+      const r = rollupMetrics([row], totalSalesChannel);
+      for (const [k, v] of Object.entries(r)) {
+        if (typeof v !== 'number') continue;
+        if (!k.startsWith('org__')) continue;
+        const raw = k.slice('org__'.length);
+        const display = displayOrgLabel(raw);
+        if (!display) continue;
+        totals.set(display, (totals.get(display) ?? 0) + v * w);
+      }
+    }
+    const out: Array<{ org: string; deals: number }> = [];
+    for (const [org, v] of totals) {
+      out.push({ org, deals: Math.round(v) });
+    }
+    out.sort((a, b) => b.deals - a.deals);
+    return out;
+  }
+
+  const orgLeaderboardYTD = orgLeaderboard(ytdStartIso, cumulativeEndIso).slice(0, 15);
+  const orgLeaderboardMTD = orgLeaderboard(mtdStartIso, cumulativeEndIso).slice(0, 15);
+
+  // All-products-combined volume — sum across every channel that represents
+  // a customer-facing product/sale, including Inside Sales (closed_solar +
+  // closed_hvac + closed_roof) and Internal (in_footprint + out_footprint).
+  // A row that classifies into multiple channels (e.g. solar + roof) counts
+  // once per channel — Dan's framing: "all volume, just labeled correctly."
+  const SALES_CHANNEL_KEYS = [
+    'total_sales',
+    'battery_only',
+    'roof',
+    'hvac',
+    'inside_sales',
+    'internal',
+  ] as const;
+  const salesChannels = SALES_CHANNEL_KEYS
+    .map((k) => channels.find((c) => c.key === k))
+    .filter((c): c is Channel => !!c);
+  const metricsByChannelId = new Map<string, MetricRow[]>();
+  for (const m of metrics) {
+    const arr = metricsByChannelId.get(m.channel_id);
+    if (arr) arr.push(m);
+    else metricsByChannelId.set(m.channel_id, [m]);
+  }
+
+  function pickNum(rollup: Record<string, number | string[]>, key: string): number {
+    const v = rollup[key];
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  }
+
+  function displayOrgLabel(raw: string): string | null {
+    const trimmed = raw.trim();
+    if (trimmed.length < 3) return null;
+    if (/^\d+$/.test(trimmed)) return null;
+    const lower = trimmed.toLowerCase();
+    // Garbage check — same heuristic as the parser
+    if (/^[a-z]{1,2}\s+\w+$/.test(lower) && lower.split(/\s+/).length === 2) return null;
+    if (ORG_DISPLAY_OVERRIDES[lower]) return ORG_DISPLAY_OVERRIDES[lower];
+    // Title-case if not already (parser-emitted "Empower X" stays as-is)
+    return trimmed
+      .split(/\s+/)
+      .map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1).toLowerCase()))
+      .join(' ');
+  }
+
+  function bucketWeight(bucketStart: string, bucketEnd: string, start: string, end: string): number {
+    const a = bucketStart > start ? bucketStart : start;
+    const b = bucketEnd < end ? bucketEnd : end;
+    if (a > b) return 0;
+    const overlap = (Date.parse(b) - Date.parse(a)) / ONE_DAY_MS + 1;
+    const total = (Date.parse(bucketEnd) - Date.parse(bucketStart)) / ONE_DAY_MS + 1;
+    if (total <= 0) return 0;
+    const w = overlap / total;
+    return w < 0 ? 0 : w > 1 ? 1 : w;
+  }
+
+  // Sum a numeric metric across rows, weighting each row by its overlap
+  // with the period. Source-of-truth filter is applied first via
+  // rollupMetrics on a per-row basis so the source policy stays consistent.
+  function proratedNumeric(
+    rows: MetricRow[],
+    channel: Channel,
+    start: string,
+    end: string,
+    keys: string[],
+  ): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const k of keys) out[k] = 0;
+    for (const row of rows) {
+      const w = bucketWeight(row.period_start, row.period_end, start, end);
+      if (w <= 0) continue;
+      const r = rollupMetrics([row], channel);
+      for (const k of keys) {
+        out[k] += pickNum(r, k) * w;
+      }
+    }
+    return out;
+  }
+
+  type ProductionTotals = {
+    deals: number;
+    installs: number;
+    installsByChannel: Record<string, number>;
+  };
+
+  function production(start: string, end: string): ProductionTotals {
+    let deals = 0;
+    let installs = 0;
+    const installsByChannel: Record<string, number> = {};
+    for (const ch of salesChannels) {
+      const rows = rowsInRange(metricsByChannelId.get(ch.id) ?? [], start, end);
+      // Each channel emits its sale + install counts under different keys.
+      // Map them per-channel here so the rollup math stays consistent.
+      let chDeals = 0;
+      let chInstalls = 0;
+      if (ch.key === 'hvac') {
+        // hvac: accounts = sold (Jobflo Adders + manual), install = installed
+        const summed = proratedNumeric(rows, ch, start, end, ['accounts', 'install']);
+        chDeals = summed.accounts ?? 0;
+        chInstalls = summed.install ?? 0;
+      } else if (ch.key === 'inside_sales') {
+        // Inside Sales: sum of closed_solar + closed_hvac + closed_roof. No
+        // separate install tracking; treat closes as deals only.
+        const summed = proratedNumeric(rows, ch, start, end, [
+          'closed_solar', 'closed_hvac', 'closed_roof',
+        ]);
+        chDeals = (summed.closed_solar ?? 0) + (summed.closed_hvac ?? 0) + (summed.closed_roof ?? 0);
+      } else if (ch.key === 'internal') {
+        // Internal: in_footprint + out_footprint = customer count. No install
+        // tracking on this channel today.
+        const summed = proratedNumeric(rows, ch, start, end, ['in_footprint', 'out_footprint']);
+        chDeals = (summed.in_footprint ?? 0) + (summed.out_footprint ?? 0);
+      } else {
+        // total_sales / battery_only / roof: accounts + installs
+        const summed = proratedNumeric(rows, ch, start, end, ['accounts', 'installs']);
+        chDeals = summed.accounts ?? 0;
+        chInstalls = summed.installs ?? 0;
+      }
+      deals += chDeals;
+      installs += chInstalls;
+      installsByChannel[ch.key] = Math.round(chInstalls);
+    }
+    return { deals: Math.round(deals), installs: Math.round(installs), installsByChannel };
+  }
+
+  function revenueFromInstalls(installsByChannel: Record<string, number>): number {
+    let total = 0;
+    for (const [key, count] of Object.entries(installsByChannel)) {
+      const rate = REVENUE_PER_INSTALL[key] ?? 0;
+      total += count * rate;
+    }
+    return total;
+  }
+
+  const prodLast = production(lastWeekStartIso, lastWeekEndIso);
+  const prodThis = production(thisWeekStartIso, cumulativeEndIso);
+  const prodMTD = production(mtdStartIso, cumulativeEndIso);
+  const prodQTD = production(qtdStartIso, cumulativeEndIso);
+  const prodYTD = production(ytdStartIso, cumulativeEndIso);
+
+  // Quantum revenue gap — multiply each channel's YTD installs by its own
+  // per-install revenue rate from the Quantum sheet, then compare against
+  // the $115M annual target.
+  const ytdRevenue = revenueFromInstalls(prodYTD.installsByChannel);
+  const revenueGap = ANNUAL_REVENUE_TARGET - ytdRevenue;
+  const revenuePct = ANNUAL_REVENUE_TARGET > 0
+    ? (ytdRevenue / ANNUAL_REVENUE_TARGET) * 100
+    : 0;
+
+  // Recruitment is sourced from the onboarding sheet's `Stats` tab weekly
+  // rows. Dan owns the formulas; we just sum + prorate the relevant weeks
+  // here. Boundary weeks that straddle the period (e.g. a "Week of 4/27-5/3"
+  // bucket when MTD starts May 1) get weighted by overlapping days.
+  function sumWeeklyRange(start: string, end: string): { reps: number; dealers: number } {
+    let reps = 0;
+    let dealers = 0;
+    for (const r of recruitment) {
+      const w = bucketWeight(r.period_start, r.period_end, start, end);
+      if (w <= 0) continue;
+      reps += (r.new_reps ?? 0) * w;
+      dealers += (r.new_dealers ?? 0) * w;
+    }
+    return { reps: Math.round(reps), dealers: Math.round(dealers) };
+  }
+
+  const mtdNew = sumWeeklyRange(mtdStartIso, cumulativeEndIso);
+  const qtdNew = sumWeeklyRange(qtdStartIso, cumulativeEndIso);
+  const ytdNew = sumWeeklyRange(ytdStartIso, cumulativeEndIso);
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-10 anim-fade-rise">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-[var(--brand-cyan)] font-medium mb-2">
+            Dashboard
+          </p>
+          <h1 className="text-2xl sm:text-4xl font-semibold tracking-tight text-[var(--ink)]">
+            Sales activity
+          </h1>
+          <p className="text-sm text-[var(--muted)] mt-2">
+            Week ending <span className="num font-medium text-[var(--foreground)]">{weekEndingIso}</span>
+          </p>
+        </div>
+        <WeekPicker
+          current={weekEndingIso}
+          options={buildWeekOptions(weekEndingDate, 26)}
+        />
+      </div>
+
+      <section className="mb-10 anim-fade-rise stagger-1">
+        <SectionHeader
+          eyebrow="All Products"
+          title="Combined volume — deals + installs"
+          subtitle="Sum across Solar+Storage, Battery Only, Roofing, HVAC, Inside Sales, and Internal · a customer in multiple channels counts once per channel"
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <ProductionCard
+            label="Last Week"
+            range={`${shortDate(lastWeekStartIso)}–${shortDate(lastWeekEndIso)}`}
+            deals={prodLast.deals} installs={prodLast.installs}
+          />
+          <ProductionCard
+            label="This Week"
+            range={`${shortDate(thisWeekStartIso)}–${shortDate(cumulativeEndIso)}`}
+            deals={prodThis.deals} installs={prodThis.installs}
+          />
+          <ProductionCard
+            label="MTD"
+            range={`${shortDate(mtdStartIso)}–${shortDate(cumulativeEndIso)}`}
+            deals={prodMTD.deals} installs={prodMTD.installs}
+          />
+          <ProductionCard
+            label="QTD"
+            range={`${shortDate(qtdStartIso)}–${shortDate(cumulativeEndIso)}`}
+            deals={prodQTD.deals} installs={prodQTD.installs}
+          />
+          <ProductionCard
+            label="YTD"
+            range={`${shortDate(ytdStartIso)}–${shortDate(cumulativeEndIso)}`}
+            deals={prodYTD.deals} installs={prodYTD.installs} hero
+          />
+        </div>
+      </section>
+
+      <section className="mb-10 anim-fade-rise stagger-2">
+        <SectionHeader
+          eyebrow="Quantum"
+          title="Annual revenue gap"
+          subtitle={
+            scenarioData?.revenuePerInstall
+              ? `YTD installs × $${(scenarioData.revenuePerInstall / 1000).toFixed(0)}K (from active forecast scenario) vs $${(ANNUAL_REVENUE_TARGET / 1_000_000).toFixed(1)}M annual target`
+              : `YTD installs × per-channel contract value (fallback) vs $${(ANNUAL_REVENUE_TARGET / 1_000_000).toFixed(0)}M annual target`
+          }
+        />
+        <div className="rounded-2xl border border-[var(--brand-cyan-soft)] bg-[var(--surface)] p-5 sm:p-6 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)]">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            <RevenueStat label="YTD revenue" value={formatCurrency(ytdRevenue)} hero />
+            <RevenueStat label="Annual target" value={formatCurrency(ANNUAL_REVENUE_TARGET)} />
+            <RevenueStat
+              label="Gap"
+              value={revenueGap >= 0 ? `−${formatCurrency(revenueGap)}` : `+${formatCurrency(Math.abs(revenueGap))}`}
+              tone={revenueGap >= 0 ? 'warn' : 'ok'}
+            />
+            <RevenueStat label="Progress" value={`${revenuePct.toFixed(1)}%`} />
+          </div>
+          <div className="h-2 rounded-full bg-[var(--surface-muted)] overflow-hidden">
+            <div
+              className={`h-full transition-[width] duration-500 ${
+                revenuePct >= 100 ? 'bg-emerald-400' : revenuePct >= 50 ? 'bg-amber-400' : 'bg-rose-400'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(0, revenuePct))}%` }}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-10 anim-fade-rise stagger-3">
+        <SectionHeader
+          eyebrow="Active reps"
+          title="Reps with at least one deal in the period"
+          subtitle="From Jobflo · excludes Labor Only and IP Takeovers"
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card label="MTD" reps={mtdActiveReps} deals={prodMTD.deals} dealsPerRep={dealsPerRep(mtdActiveReps, prodMTD.deals)} />
+          <Card label="QTD" reps={qtdActiveReps} deals={prodQTD.deals} dealsPerRep={dealsPerRep(qtdActiveReps, prodQTD.deals)} />
+          <Card label="YTD" reps={ytdActiveReps} deals={prodYTD.deals} dealsPerRep={dealsPerRep(ytdActiveReps, prodYTD.deals)} hero />
+        </div>
+      </section>
+
+      <section className="mb-10 anim-fade-rise stagger-4">
+        <SectionHeader
+          eyebrow="Sales Team Mix"
+          title="By sales team · top 15"
+          subtitle="Deals per team (dealer orgs + Empower X internal) across all qualifying channels · excludes Labor Only and IP Takeovers"
+        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Leaderboard label="MTD" rows={orgLeaderboardMTD} />
+          <Leaderboard label="YTD" rows={orgLeaderboardYTD} hero />
+        </div>
+      </section>
+
+      <section className="mb-10 anim-fade-rise stagger-5">
+        <SectionHeader
+          eyebrow="Recruitment"
+          title="New reps + new dealers"
+          subtitle="From the onboarding sheet's Stats tab · weekly granularity, boundary weeks prorated"
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <RecruitmentCard label="MTD" reps={mtdNew.reps} dealers={mtdNew.dealers} />
+          <RecruitmentCard label="QTD" reps={qtdNew.reps} dealers={qtdNew.dealers} />
+          <RecruitmentCard label="YTD" reps={ytdNew.reps} dealers={ytdNew.dealers} hero />
+        </div>
+      </section>
+
+      <p className="text-xs text-[var(--muted)]">
+        Looking for last-week scoreboard, MTD/QTD/YTD by channel, or Quantum targets?{' '}
+        <Link href="/" className="text-[var(--brand-cyan)] hover:underline">Weekly Review</Link>.
+      </p>
+    </div>
+  );
+}
+
+function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: string; subtitle: string }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--brand-cyan)]">
+          {eyebrow}
+        </span>
+        <h2 className="text-sm font-medium text-[var(--ink)]">{title}</h2>
+      </div>
+      <p className="text-xs text-[var(--muted)]">{subtitle}</p>
+    </div>
+  );
+}
+
+function Card({
+  label,
+  reps,
+  deals,
+  dealsPerRep,
+  hero,
+}: {
+  label: string;
+  reps: number;
+  deals: number;
+  dealsPerRep: number;
+  hero?: boolean;
+}) {
+  return (
+    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
+      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
+    }`}>
+      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+        {label}
+      </div>
+      <div className="flex items-baseline gap-3 mb-2">
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-4xl' : 'text-3xl'}`}>
+          {formatCount(reps)}
+        </span>
+        <span className="text-sm text-[var(--muted)]">active reps</span>
+      </div>
+      <div className="text-sm text-[var(--foreground)] num">
+        {dealsPerRep > 0 ? dealsPerRep.toFixed(1) : '—'}{' '}
+        <span className="text-[var(--muted)]">deals / rep</span>
+      </div>
+      <div className="text-xs text-[var(--muted)] num mt-1">
+        {formatCount(deals)} deals total
+      </div>
+    </div>
+  );
+}
+
+function Leaderboard({
+  label,
+  rows,
+  hero,
+}: {
+  label: string;
+  rows: Array<{ org: string; deals: number }>;
+  hero?: boolean;
+}) {
+  const max = rows.reduce((m, r) => Math.max(m, r.deals), 0);
+  return (
+    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
+      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
+    }`}>
+      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+        {label}
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-[var(--muted)]">
+          No org-level data yet. Re-upload the Jobflo export so the parser
+          populates per-org counts.
+        </p>
+      ) : (
+        <ol className="space-y-2">
+          {rows.map((r, i) => (
+            <li key={r.org} className="flex items-center gap-3">
+              <span className="num text-xs text-[var(--muted)] w-5 text-right">{i + 1}.</span>
+              <span className="flex-1 text-sm text-[var(--foreground)] capitalize truncate">
+                {r.org}
+              </span>
+              <span className="num text-sm font-medium text-[var(--ink)] w-12 text-right">
+                {r.deals}
+              </span>
+              <div className="hidden sm:block w-24 h-1.5 rounded-full bg-[var(--surface-muted)] overflow-hidden">
+                <div
+                  className="h-full bg-[var(--brand-cyan)] transition-[width] duration-500"
+                  style={{ width: max > 0 ? `${(r.deals / max) * 100}%` : '0%' }}
+                />
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function shortDate(iso: string): string {
+  // YYYY-MM-DD → "Mon D" without timezone shifting (everything is local).
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[parseInt(m[2], 10) - 1]} ${parseInt(m[3], 10)}`;
+}
+
+function ProductionCard({
+  label,
+  range,
+  deals,
+  installs,
+  hero,
+}: {
+  label: string;
+  range?: string;
+  deals: number;
+  installs: number;
+  hero?: boolean;
+}) {
+  return (
+    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
+      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
+    }`}>
+      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
+        {label}
+      </div>
+      {range && (
+        <div className="text-[10px] num text-[var(--muted)] mb-2">{range}</div>
+      )}
+      <div className="flex items-baseline gap-3 mb-1">
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-3xl' : 'text-2xl'}`}>
+          {formatCount(deals)}
+        </span>
+        <span className="text-xs text-[var(--muted)]">deals</span>
+      </div>
+      <div className="text-sm text-[var(--foreground)] num">
+        {formatCount(installs)}{' '}
+        <span className="text-[var(--muted)]">installs</span>
+      </div>
+    </div>
+  );
+}
+
+function RevenueStat({
+  label,
+  value,
+  hero,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hero?: boolean;
+  tone?: 'ok' | 'warn';
+}) {
+  const valueClass = tone === 'ok'
+    ? 'text-emerald-400'
+    : tone === 'warn'
+    ? 'text-rose-400'
+    : 'text-[var(--ink)]';
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
+        {label}
+      </div>
+      <div className={`num font-semibold ${hero ? 'text-2xl' : 'text-lg'} ${valueClass}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function RecruitmentCard({
+  label,
+  reps,
+  dealers,
+  hero,
+}: {
+  label: string;
+  reps: number;
+  dealers: number;
+  hero?: boolean;
+}) {
+  return (
+    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
+      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
+    }`}>
+      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+        {label}
+      </div>
+      <div className="flex items-baseline gap-3 mb-2">
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-4xl' : 'text-3xl'}`}>
+          {formatCount(reps)}
+        </span>
+        <span className="text-sm text-[var(--muted)]">new reps</span>
+      </div>
+      <div className="text-sm text-[var(--foreground)] num">
+        {formatCount(dealers)}{' '}
+        <span className="text-[var(--muted)]">new dealers</span>
+      </div>
+    </div>
+  );
+}
+
+// Mirrors the helper on app/page.tsx — kept inline to avoid pulling the
+// homepage's full module here.
+function buildWeekOptions(currentEnding: Date, count: number): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  const cursor = new Date(currentEnding);
+  for (let i = 0; i < count; i++) {
+    const value = isoDate(cursor);
+    options.push({ value, label: `Week ending ${value}` });
+    cursor.setDate(cursor.getDate() - 7);
+  }
+  return options;
+}

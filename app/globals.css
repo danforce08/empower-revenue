@@ -1,26 +1,384 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light dark;
+
+  /* Empower brand — fixed identity, doesn't shift with theme */
+  --brand-navy: #004164;
+  --brand-navy-deep: #003251;
+  --brand-cyan: #00B8F3;
+  --brand-cyan-soft: #C5EEFB;
+  --brand-navy-soft: #e2ecf2;
+
+  /* Light surface tokens */
+  --background: #fbfcfd;
+  --foreground: #0a1828;
+  --surface: #ffffff;
+  --surface-muted: #f4f7fa;
+  --surface-glass: rgba(255, 255, 255, 0.62);
+  --surface-glass-strong: rgba(255, 255, 255, 0.78);
+  --border: #e5ecf2;
+  --border-soft: #e8eef4;
+  --border-strong: #cdd9e2;
+  --muted: #5b6b7d;
+  --card-hover: #f1f7fc;
+
+  /* Semantic "ink" — primary brand-toned text color. Tracks navy in light
+     mode so the brand reads through; shifts brighter in dark so navy text
+     doesn't disappear into the dark surface. */
+  --ink: var(--brand-navy);
+  --ink-on-soft: var(--brand-navy);
+  --ink-strong: var(--brand-navy-deep);
+
+  /* Hero radial backdrop — soft cyan wash from top */
+  --hero-glow: radial-gradient(
+    ellipse 70% 50% at 50% -10%,
+    color-mix(in srgb, var(--brand-cyan) 14%, transparent) 0%,
+    transparent 65%
+  );
+}
+
+/* Dark theme — applied via [data-theme="dark"] on <html> */
+[data-theme="dark"] {
+  --background: #06121d;
+  --foreground: #e7eef5;
+  --surface: #0c1c2c;
+  --surface-muted: #102537;
+  --surface-glass: rgba(12, 28, 44, 0.55);
+  --surface-glass-strong: rgba(12, 28, 44, 0.78);
+  --border: #1d324a;
+  --border-soft: #15283b;
+  --border-strong: #2c466a;
+  --muted: #8aa0b8;
+  --card-hover: #102d44;
+  --brand-cyan-soft: rgba(0, 184, 243, 0.16);
+  --brand-navy-soft: rgba(0, 184, 243, 0.12);
+
+  /* In dark mode, "ink" (the role that was navy in light) flips to a
+     near-white anchor so the same components stay legible. Brand-cyan is
+     held back as the accent. */
+  --ink: #f0f6fb;
+  --ink-on-soft: var(--brand-cyan);
+  --ink-strong: #ffffff;
+
+  --hero-glow: radial-gradient(
+    ellipse 70% 50% at 50% -10%,
+    color-mix(in srgb, var(--brand-cyan) 22%, transparent) 0%,
+    transparent 65%
+  );
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-navy-deep: var(--brand-navy-deep);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-cyan-soft: var(--brand-cyan-soft);
+  --color-card-hover: var(--card-hover);
+  --color-border-soft: var(--border-soft);
+  --color-brand-navy-soft: var(--brand-navy-soft);
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+html, body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+}
+
+/* Soft cyan wash behind the hero, fades into the body bg */
+body {
+  background: var(--hero-glow), var(--background);
+}
+
+/* WCAG 2.3.3 — respect users who've asked for less motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-body {
-  background: var(--background);
+/* ---------- Animations ---------- */
+
+@keyframes fade-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { background-color: rgba(0, 184, 243, 0); }
+  50%      { background-color: rgba(0, 184, 243, 0.08); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes count-up {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.anim-fade-rise {
+  animation: fade-rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.anim-fade-in {
+  animation: fade-in 0.32s ease both;
+}
+.anim-count {
+  animation: count-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Stagger delay utilities for rows */
+.stagger-0  { animation-delay: 0.00s; }
+.stagger-1  { animation-delay: 0.04s; }
+.stagger-2  { animation-delay: 0.08s; }
+.stagger-3  { animation-delay: 0.12s; }
+.stagger-4  { animation-delay: 0.16s; }
+.stagger-5  { animation-delay: 0.20s; }
+.stagger-6  { animation-delay: 0.24s; }
+.stagger-7  { animation-delay: 0.28s; }
+.stagger-8  { animation-delay: 0.32s; }
+
+/* Shimmering skeleton (used for loading states) */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-muted) 0%, var(--border) 50%, var(--surface-muted) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Sticky header with depth */
+.app-header {
+  background: var(--surface-glass-strong);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Glassmorphism — used on hero scoreboard cards. Applied OVER the hero glow. */
+.glass {
+  background: var(--surface-glass);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border: 1px solid var(--border);
+}
+[data-theme="dark"] .glass {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px rgba(0, 184, 243, 0.04), 0 18px 48px -18px rgba(0, 184, 243, 0.12);
+}
+
+/* In dark mode the dark-text Empower logo loses its wordmark against the
+   dark bg. Filter brightens just the dark portions of the SVG so the
+   wordmark reads as near-white while the cyan icon stays vibrant. */
+.logo-img {
+  transition: filter 200ms ease;
+}
+[data-theme="dark"] .logo-img {
+  filter: brightness(0) invert(1) opacity(0.92);
+}
+
+/* Brand button */
+.btn-primary {
+  background: var(--brand-navy);
+  color: white;
+  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+              background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 1px 0 rgba(0, 65, 100, 0.15), 0 4px 14px -6px rgba(0, 65, 100, 0.35);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--brand-navy-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 0 rgba(0, 65, 100, 0.18), 0 6px 18px -6px rgba(0, 65, 100, 0.45);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 0 rgba(0, 65, 100, 0.15);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--brand-navy);
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+/* Focus rings — cyan, never default blue */
+*:focus-visible {
+  outline: 2px solid var(--brand-cyan);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline-offset: 0;
+  border-color: var(--brand-cyan);
+}
+
+/* Subtle row hover for the main table */
+.row-hover {
+  transition: background-color 0.14s ease, transform 0.14s ease;
+}
+.row-hover:hover {
+  background: linear-gradient(90deg, rgba(0, 184, 243, 0.04) 0%, rgba(0, 184, 243, 0) 60%);
+}
+
+/* Chip / pill */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* Number formatting helper — tabular figures so columns line up */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ---------- Sales Context (weekly reports) — brand utilities + prose ---------- */
+
+.bg-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-navy) 0%, var(--brand-navy-deep) 60%, #001a2b 100%);
+}
+.text-brand-gradient {
+  background: linear-gradient(135deg, var(--brand-navy) 0%, var(--brand-cyan) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.lift {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1px 0 var(--border) inset, 0 8px 28px -10px color-mix(in srgb, var(--brand-navy) 18%, transparent);
+  border-color: color-mix(in srgb, var(--brand-cyan) 35%, var(--border));
+}
+
+.prose-report {
+  font-family: var(--font-serif, ui-serif, Georgia, serif);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+}
+.prose-report h1 {
+  font-family: var(--font-sans);
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  margin: 0 0 0.5rem;
+  color: var(--brand-navy);
+}
+.prose-report h2 {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin-top: 2.75rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--brand-navy);
+  position: relative;
+}
+.prose-report h2::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 2.25rem;
+  height: 2px;
+  background: var(--brand-cyan);
+  border-radius: 2px;
+}
+.prose-report h3 {
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  color: var(--brand-navy);
+}
+.prose-report p { margin: 0 0 1.1rem; }
+.prose-report ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0 0 1.25rem;
+}
+.prose-report ul li {
+  position: relative;
+  padding-left: 1.4rem;
+  margin: 0.45rem 0;
+}
+.prose-report ul li::before {
+  content: "";
+  position: absolute;
+  left: 0.3rem;
+  top: 0.85em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--brand-cyan);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-cyan) 18%, transparent);
+}
+.prose-report ol {
+  padding-left: 1.5rem;
+  margin: 0 0 1.25rem;
+}
+.prose-report strong {
+  font-weight: 600;
+  color: var(--brand-navy);
+}
+.prose-report em { font-style: italic; }
+.prose-report a {
+  color: var(--brand-cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color 120ms ease;
+}
+.prose-report a:hover { color: var(--brand-navy); }
+.prose-report code {
+  background: var(--brand-navy-soft);
+  color: var(--brand-navy);
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.92em;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.prose-report blockquote {
+  border-left: 3px solid var(--brand-cyan);
+  margin: 1.25rem 0;
+  padding: 0.25rem 1rem;
+  color: var(--muted);
+  font-style: italic;
 }

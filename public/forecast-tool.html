@@ -1,0 +1,1524 @@
+<!doctype html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Empower Revenue Forecast",
+  "schemaVersion": 1,
+  "description": "Interactive Empower revenue forecast model with Quantum 250×28 milestone tracking, branch-level breakdown (Stockton, Fresno, Valencia, Riverside, Phoenix, Houston), customer data upload (CSV/XLSX) to compute actuals and apply to inputs, and persisted state across sessions. Built from Dan's sales_prediction_model.jsx, ported to a self-contained live artifact."
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Empower Revenue Forecast</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html, body { background: #fbfcfd; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; color: #0a1828; font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1100px; margin: 0 auto; padding: 20px 20px 80px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.title h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; color: #004164; }
+.title p { margin: 2px 0 0; font-size: 13px; color: #64748b; }
+.title p .q { font-weight: 600; color: #0f172a; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; background: #f1f5f9; padding: 4px; border-radius: 10px; }
+.tab { padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; color: #475569; cursor: pointer; border: 0; background: transparent; transition: all 0.12s ease; }
+.tab:hover { color: #0f172a; }
+.tab.active { background: #ffffff; color: #0f172a; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+.metric-toggle { padding: 3px; }
+.metric-toggle .tab { padding: 5px 12px; font-size: 12px; }
+.card { background: #ffffff; border: 1px solid #e5ecf2; border-radius: 12px; padding: 18px; }
+.card + .card { margin-top: 14px; }
+.card h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.card p.sub { margin: 0 0 14px; font-size: 12px; color: #64748b; }
+.section-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.grid { display: grid; gap: 14px; }
+.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.grid-12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+@media (max-width: 840px) { .grid-12 { grid-template-columns: 1fr; } .grid-4, .grid-6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid-3 { grid-template-columns: 1fr; } }
+.span-4 { grid-column: span 4; } .span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; } .span-12 { grid-column: 1 / -1; }
+@media (max-width: 840px) { .span-4, .span-5, .span-7, .span-8 { grid-column: 1; } }
+label { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.label-row label { margin-bottom: 0; }
+.label-row .hint { font-size: 11px; color: #00B8F3; font-weight: 500; cursor: pointer; background: transparent; border: 0; padding: 0; }
+.label-row .hint:hover { color: #004164; }
+input[type="number"], input[type="text"], select { width: 100%; padding: 9px 11px; font-size: 14px; font-weight: 500; color: #0f172a; background: #f8fafc; border: 1px solid #e5ecf2; border-radius: 8px; outline: none; transition: border 0.12s, background 0.12s; font-family: inherit; }
+input[type="number"].big { font-size: 22px; font-weight: 600; padding: 12px; }
+input:focus, select:focus { border-color: #00B8F3; background: #ffffff; box-shadow: 0 0 0 3px rgba(0, 184, 243, 0.15); }
+input[type="range"] { width: 100%; accent-color: #00B8F3; }
+.range-row { display: flex; align-items: center; gap: 10px; }
+.range-row input[type="number"] { width: 80px; flex-shrink: 0; }
+select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 30px; }
+button.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 13px; font-weight: 500; border-radius: 8px; border: 1px solid transparent; cursor: pointer; transition: all 0.12s; font-family: inherit; }
+button.btn.primary { background: #004164; color: #ffffff; border-color: #004164; }
+button.btn.primary:hover { background: #003251; }
+button.btn.secondary { background: #ffffff; color: #0f172a; border-color: #e2e8f0; }
+button.btn.secondary:hover { background: #f8fafc; border-color: #cbd5e1; }
+button.btn.ghost { background: transparent; color: #64748b; }
+button.btn.ghost:hover { color: #0f172a; background: #f1f5f9; }
+button.btn.danger { color: #b91c1c; background: transparent; }
+button.btn.danger:hover { color: #991b1b; background: #fee2e2; }
+button.btn.small { padding: 4px 10px; font-size: 12px; }
+.kpi { padding: 14px; border-radius: 12px; background: #f8fafc; border: 1px solid #e5ecf2; min-width: 0; }
+.kpi.accent { background: linear-gradient(135deg, #004164 0%, #003251 100%); color: #ffffff; border: 0; }
+.kpi .kpi-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin-bottom: 6px; }
+.kpi.accent .kpi-label { color: #94a3b8; }
+.kpi .kpi-value { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; }
+.kpi .kpi-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+.kpi.accent .kpi-sub { color: #94a3b8; }
+.band { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 10px; }
+.band-cell { padding: 6px 3px; border-radius: 8px; text-align: center; min-width: 0; overflow: hidden; }
+.band-cell.conservative { background: #fef3c7; }
+.band-cell.expected { background: #dcfce7; }
+.band-cell.optimistic { background: #dbeafe; }
+.band-cell .band-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+.band-cell .band-value { font-size: 13px; font-weight: 700; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #0f172a; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table th { text-align: left; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+table td { padding: 11px 12px; border-bottom: 1px solid #f1f5f9; }
+table tr:last-child td { border-bottom: 0; }
+table tr.region td { background: #f8fafc; font-weight: 600; }
+table tr.total td { background: #004164; color: #ffffff; font-weight: 600; border-bottom: 0; }
+table .num { text-align: right; font-variant-numeric: tabular-nums; }
+table input[type="number"] { padding: 5px 8px; font-size: 13px; text-align: right; width: 80px; }
+table.compact th, table.compact td { padding: 7px 8px; font-size: 12px; }
+table.compact th { font-size: 10px; }
+table td.active-month { background: #fffbeb; }
+table tr.region td.active-month { background: #fef3c7; }
+.table-scroll { overflow-x: auto; border: 1px solid #e5ecf2; border-radius: 10px; }
+.table-scroll table { border-radius: 0; }
+.delta-pos { color: #047857; font-weight: 600; }
+.delta-neg { color: #b91c1c; font-weight: 600; }
+.delta-zero { color: #64748b; }
+.editable-input { padding: 4px 6px; font-size: 13px; text-align: right; width: 70px; font-weight: 600; background: #ffffff; }
+.editable-input:hover { border-color: #94a3b8; }
+.snapshot-status { font-size: 12px; padding: 9px 12px; border-radius: 8px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; line-height: 1.4; }
+.snapshot-status.matches { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+.snapshot-status.edited { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; }
+.snapshot-status.empty { background: #f8fafc; border: 1px solid #e5ecf2; color: #64748b; }
+.snapshot-status strong { color: inherit; font-weight: 600; }
+.snapshot-status .ss-icon { font-size: 14px; }
+.snapshot-status .ss-meta { color: #64748b; }
+.snapshot-status.matches .ss-meta { color: #16a34a; }
+.snapshot-status.edited .ss-meta { color: #b45309; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.pill.green { background: #dcfce7; color: #065f46; }
+.pill.yellow { background: #fef3c7; color: #854d0e; }
+.pill.red { background: #fee2e2; color: #991b1b; }
+.pill.blue { background: #dbeafe; color: #1e40af; }
+.tip { display: inline-block; margin-left: 4px; width: 14px; height: 14px; border-radius: 50%; background: #e2e8f0; color: #64748b; font-size: 9px; font-weight: 700; text-align: center; line-height: 14px; cursor: help; position: relative; vertical-align: middle; }
+.tip:hover { background: #cbd5e1; color: #0f172a; }
+.tip .tip-body { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #0f172a; color: #ffffff; font-weight: 400; font-size: 11px; line-height: 1.4; padding: 8px 10px; border-radius: 6px; white-space: normal; width: 220px; text-align: left; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.tip:hover .tip-body { display: block; }
+.tip .tip-body::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #0f172a; }
+.dropzone { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 32px 20px; text-align: center; transition: all 0.15s; cursor: pointer; background: #f8fafc; display: block; }
+.dropzone:hover, .dropzone.drag { border-color: #0ea5e9; background: #f0f9ff; }
+.dropzone svg { width: 36px; height: 36px; color: #94a3b8; margin-bottom: 10px; }
+.dropzone .dz-title { font-size: 14px; font-weight: 600; }
+.dropzone .dz-sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+.dropzone input[type="file"] { display: none; }
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap-tall { position: relative; height: 340px; }
+.empty { text-align: center; padding: 40px 20px; color: #64748b; }
+.hidden { display: none !important; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.flex-center { display: flex; align-items: center; gap: 8px; }
+.mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; }
+.text-muted { color: #64748b; } .text-xs { font-size: 11px; } .text-sm { font-size: 12px; }
+.progress { width: 100%; height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #0ea5e9, #10b981); border-radius: 999px; transition: width 0.3s; }
+.progress-bar.over { background: linear-gradient(90deg, #10b981, #059669); }
+.progress-bar.behind { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.callout { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 12px 14px; font-size: 12px; color: #0c4a6e; }
+.callout strong { color: #0c4a6e; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.snapshots-list { display: flex; flex-direction: column; gap: 8px; }
+.snapshot-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: #f8fafc; border: 1px solid #e5ecf2; border-radius: 10px; transition: all 0.12s; }
+.snapshot-card:hover { background: #ffffff; border-color: #cbd5e1; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+.snapshot-info { min-width: 0; flex: 1; }
+.snapshot-name { font-weight: 600; font-size: 13px; color: #0f172a; }
+.snapshot-meta { font-size: 11px; color: #64748b; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.snapshot-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.save-form { display: flex; gap: 6px; align-items: center; padding: 12px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; }
+.save-form input[type="text"] { flex: 1; padding: 7px 10px; font-size: 13px; }
+
+/* ─────── Dark theme — synced with parent dashboard via localStorage ─────── */
+html[data-theme="dark"], [data-theme="dark"] body { background: #06121d; }
+[data-theme="dark"] body { color: #e7eef5; }
+[data-theme="dark"] .title h1 { color: #f0f6fb; }
+[data-theme="dark"] .title p { color: #8aa0b8; }
+[data-theme="dark"] .title p .q { color: #f0f6fb; }
+[data-theme="dark"] .tabs { background: #102537; }
+[data-theme="dark"] .tab { color: #8aa0b8; }
+[data-theme="dark"] .tab:hover { color: #f0f6fb; }
+[data-theme="dark"] .tab.active { background: #1d324a; color: #f0f6fb; box-shadow: 0 0 0 1px rgba(0, 184, 243, 0.2); }
+[data-theme="dark"] .card {
+  background: #0c1c2c;
+  border-color: #1d324a;
+}
+[data-theme="dark"] .card h2 { color: #f0f6fb; }
+[data-theme="dark"] .card p.sub { color: #8aa0b8; }
+[data-theme="dark"] .section-label { color: #8aa0b8; }
+[data-theme="dark"] label { color: #8aa0b8; }
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] select {
+  background-color: #0c1c2c;
+  border-color: #1d324a;
+  color: #f0f6fb;
+}
+[data-theme="dark"] input:focus, [data-theme="dark"] select:focus {
+  background-color: #102537;
+  border-color: #00B8F3;
+  box-shadow: 0 0 0 3px rgba(0, 184, 243, 0.2);
+}
+[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238aa0b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+[data-theme="dark"] button.btn.secondary {
+  background: #102537;
+  color: #f0f6fb;
+  border-color: #1d324a;
+}
+[data-theme="dark"] button.btn.secondary:hover { background: #1d324a; border-color: #2c466a; }
+[data-theme="dark"] button.btn.ghost { color: #8aa0b8; }
+[data-theme="dark"] button.btn.ghost:hover { color: #f0f6fb; background: #102537; }
+[data-theme="dark"] .kpi { background: #102537; border-color: #1d324a; }
+[data-theme="dark"] .kpi .kpi-label { color: #8aa0b8; }
+[data-theme="dark"] .kpi.accent .kpi-label { color: rgba(255, 255, 255, 0.65); }
+[data-theme="dark"] .kpi .kpi-sub { color: #8aa0b8; }
+[data-theme="dark"] .band-cell.conservative { background: rgba(180, 130, 0, 0.25); color: #fbeed0; }
+[data-theme="dark"] .band-cell.expected { background: rgba(20, 130, 70, 0.25); color: #c4eed8; }
+[data-theme="dark"] .band-cell.optimistic { background: rgba(40, 90, 180, 0.25); color: #cfdcf6; }
+[data-theme="dark"] .band-cell .band-label { color: #8aa0b8; }
+[data-theme="dark"] .band-cell .band-value { color: #f0f6fb; }
+[data-theme="dark"] table th {
+  color: #8aa0b8;
+  background: #0c1c2c;
+  border-bottom-color: #1d324a;
+}
+[data-theme="dark"] table td { border-bottom-color: #15283b; }
+[data-theme="dark"] table tr.region td { background: #102537; color: #e7eef5; }
+[data-theme="dark"] table td.active-month { background: rgba(180, 130, 0, 0.14); }
+[data-theme="dark"] table tr.region td.active-month { background: rgba(180, 130, 0, 0.22); }
+[data-theme="dark"] .table-scroll { border-color: #1d324a; }
+[data-theme="dark"] .delta-pos { color: #4ade80; }
+[data-theme="dark"] .delta-neg { color: #fb7185; }
+[data-theme="dark"] .pill { background: #102537; color: #f0f6fb; }
+[data-theme="dark"] .snapshot-status.empty { background: #0c1c2c; border-color: #1d324a; color: #8aa0b8; }
+[data-theme="dark"] .snapshot-status.matches { background: rgba(20, 130, 70, 0.18); border-color: rgba(34, 197, 94, 0.4); color: #c4eed8; }
+[data-theme="dark"] .snapshot-status.edited { background: rgba(180, 130, 0, 0.18); border-color: rgba(251, 191, 36, 0.4); color: #fbeed0; }
+[data-theme="dark"] .snapshot-card { background: #0c1c2c; border-color: #1d324a; }
+[data-theme="dark"] .snapshot-card:hover { background: #102537; border-color: #2c466a; }
+[data-theme="dark"] .snapshot-name { color: #f0f6fb; }
+[data-theme="dark"] .snapshot-meta { color: #8aa0b8; }
+[data-theme="dark"] .save-form { background: rgba(0, 184, 243, 0.08); border-color: rgba(0, 184, 243, 0.3); }
+</style>
+</head>
+<body>
+<script>
+  // Sync theme with parent dashboard via shared localStorage key. Apply
+  // before paint to avoid a flash; listen for the dashboard's toggle.
+  (function () {
+    function apply(theme) {
+      document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+    }
+    try {
+      var t = localStorage.getItem('erd_theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      apply(t);
+    } catch (e) { apply('light'); }
+    window.addEventListener('storage', function (e) {
+      if (e.key === 'erd_theme' && e.newValue) apply(e.newValue);
+    });
+  })();
+</script>
+<div class="wrap">
+<div class="header">
+  <div class="title">
+    <h1>Empower Revenue Forecast</h1>
+    <p><span class="q">Quantum 250×28</span> · Interactive forecast model</p>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="forecast">Forecast</button>
+    <button class="tab" data-tab="branches">Branches</button>
+    <button class="tab" data-tab="targets">Targets</button>
+    <button class="tab" data-tab="charts">Charts</button>
+    <button class="tab" data-tab="data">Data</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </div>
+</div>
+
+<div class="tab-panel" id="panel-forecast">
+  <div class="grid grid-12">
+    <div class="span-5">
+      <div class="card">
+        <div class="section-label">Period</div>
+        <div class="grid grid-2">
+          <div><label>Quarter</label><select id="in-quarter"><option value="Q1">Q1</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4</option><option value="Full" selected>Full Year</option></select></div>
+          <div><label>Year</label><select id="in-year"><option>2024</option><option>2025</option><option selected>2026</option><option>2027</option><option>2028</option></select></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label-row"><label>Active Reps<span class="tip">?<span class="tip-body">Sales reps actively generating deals during the period.</span></span></label><button class="hint hidden" id="use-target-reps">Use target (251)</button></div>
+        <input type="number" id="in-reps" class="big" value="250" min="0"/>
+        <div class="text-xs text-muted mt-2" id="rep-target-note"></div>
+      </div>
+      <div class="card">
+        <div class="section-label">Model Parameters</div>
+        <div class="grid grid-2">
+          <div><div class="label-row"><label style="font-size: 10px;">Deals/Rep/Mo<span class="tip">?<span class="tip-body">Average net-sold deals per rep per month. Historical baseline ~2.2.</span></span></label></div><input type="number" id="in-deals-per-rep" value="2.2" step="0.1" min="0"/></div>
+          <div><div class="label-row"><label style="font-size: 10px;">Pull-through<span class="tip">?<span class="tip-body">% of deals that become installs. Historical ~50%.</span></span></label></div><div class="range-row"><input type="number" id="in-pull-through" value="50" min="0" max="100"/><span class="text-sm text-muted">%</span></div></div>
+        </div>
+        <button class="btn ghost mt-3" onclick="showTab('settings')" style="padding-left:0;">Edit seasonality &amp; weights →</button>
+      </div>
+    </div>
+    <div class="span-7">
+      <div class="card">
+        <div class="flex-between"><div><h2 id="forecast-period-label">Forecast — 2026 Full Year</h2><p class="sub">Deals, installs, and revenue with conservative / expected / optimistic bands</p></div><div class="text-xs text-muted">Seasonality factor: <strong id="season-factor">—</strong></div></div>
+        <div class="grid grid-3 mt-3">
+          <div class="kpi"><div class="kpi-label">Deals<span class="tip">?<span class="tip-body">Net-sold deals — contracts signed.</span></span></div><div class="kpi-value" id="kpi-deals">—</div><div class="band"><div class="band-cell conservative"><div class="band-label">Low</div><div class="band-value" id="band-deals-low">—</div></div><div class="band-cell expected"><div class="band-label">Mid</div><div class="band-value" id="band-deals-mid">—</div></div><div class="band-cell optimistic"><div class="band-label">High</div><div class="band-value" id="band-deals-high">—</div></div></div></div>
+          <div class="kpi"><div class="kpi-label">Installs</div><div class="kpi-value" id="kpi-installs">—</div><div class="band"><div class="band-cell conservative"><div class="band-label">Low</div><div class="band-value" id="band-installs-low">—</div></div><div class="band-cell expected"><div class="band-label">Mid</div><div class="band-value" id="band-installs-mid">—</div></div><div class="band-cell optimistic"><div class="band-label">High</div><div class="band-value" id="band-installs-high">—</div></div></div></div>
+          <div class="kpi accent"><div class="kpi-label">Revenue</div><div class="kpi-value" id="kpi-revenue">—</div><div class="band"><div class="band-cell conservative"><div class="band-label">Low</div><div class="band-value" id="band-rev-low">—</div></div><div class="band-cell expected"><div class="band-label">Mid</div><div class="band-value" id="band-rev-mid">—</div></div><div class="band-cell optimistic"><div class="band-label">High</div><div class="band-value" id="band-rev-high">—</div></div></div></div>
+        </div>
+      </div>
+      <div class="card" id="quantum-card">
+        <h2>Quantum Gap Analysis<span class="tip">?<span class="tip-body">Empower's 250×28 plan — six milestones (M1–M6) targeting $250M annual revenue by end of 2028. For quarter views, the H-target is prorated to that quarter's seasonality share.</span></span></h2>
+        <p class="sub">Where your current inputs land vs. the Quantum target</p>
+        <div id="quantum-body"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tab-panel hidden" id="panel-branches">
+  <div class="card">
+    <div class="flex-between"><div><h2>Branch Forecast</h2><p class="sub">Total forecast allocated across branches by share-of-total weights. Edit weights below or in Settings.</p></div><div><span class="pill blue" id="branch-period-pill">2026 Full Year</span></div></div>
+    <table id="branch-table" class="mt-3">
+      <thead><tr><th>Branch</th><th class="num">Weight</th><th class="num">Deals</th><th class="num">Installs</th><th class="num">Revenue</th><th class="num">Share</th></tr></thead>
+      <tbody id="branch-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="flex-between" style="flex-wrap: wrap; gap: 10px;">
+      <div>
+        <h2>Historical Splits (Reference)</h2>
+        <p class="sub">Real branch share of deals from your Jobflo customer export. Edit your weights inline (saved automatically); state rollups update live.</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn secondary" onclick="apply2025Splits()">Apply 2025 splits</button>
+        <button class="btn primary" onclick="apply2026YTDSplits()">Apply 2026 YTD splits</button>
+      </div>
+    </div>
+    <div class="snapshot-status empty" id="snapshot-status-branches"></div>
+    <table>
+      <thead><tr><th>Branch</th><th class="num">2025 Split</th><th class="num">2026 YTD</th><th class="num">Current Weight</th><th class="num">Δ vs. 2025</th></tr></thead>
+      <tbody id="reference-tbody"></tbody>
+      <tfoot><tr class="total"><td colspan="3">Total</td><td class="num" id="reference-weights-total">—</td><td></td></tr></tfoot>
+    </table>
+    <div class="callout mt-3" id="reference-callout"></div>
+  </div>
+
+  <div class="card">
+    <div class="flex-between" style="flex-wrap: wrap; gap: 10px;">
+      <div><h2>Branch × Month</h2><p class="sub">Monthly forecast by branch, weighted by seasonality. Cells in the selected period are highlighted.</p></div>
+      <div class="tabs metric-toggle" id="metric-toggle">
+        <button class="tab" data-metric="deals">Deals</button>
+        <button class="tab" data-metric="installs">Installs</button>
+        <button class="tab active" data-metric="revenue">Revenue</button>
+      </div>
+    </div>
+    <div class="table-scroll mt-3"><table class="compact" id="branch-month-table"><thead id="branch-month-thead"></thead><tbody id="branch-month-tbody"></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <h2>Monthly Stacked by Branch</h2>
+    <p class="sub">Year-long monthly forecast, stacked by branch (CA shades of blue, AZ orange, TX green)</p>
+    <div class="chart-wrap-tall"><canvas id="branch-month-chart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Period Total by Branch</h2>
+    <p class="sub">Revenue forecast by branch for the selected period</p>
+    <div class="chart-wrap"><canvas id="branch-chart"></canvas></div>
+  </div>
+</div>
+
+<div class="tab-panel hidden" id="panel-targets">
+  <div class="card"><h2>Quantum 250×28 Milestones</h2><p class="sub">Your projected revenue vs. each H1/H2 milestone target</p><table class="mt-3"><thead><tr><th>Milestone</th><th>Period</th><th class="num">Target Reps</th><th class="num">Projected Reps</th><th class="num">Target Revenue</th><th class="num">Your Forecast</th><th class="num">Gap</th><th>Status</th></tr></thead><tbody id="milestones-tbody"></tbody></table></div>
+  <div class="card"><h2>Annual Comparison</h2><p class="sub">Rollup to annual targets</p><div class="grid grid-3 mt-3" id="annual-cards"></div></div>
+</div>
+
+<div class="tab-panel hidden" id="panel-charts">
+  <div class="card"><h2>Monthly Projection</h2><p class="sub">Deal and install flow across the year, weighted by seasonality</p><div class="chart-wrap"><canvas id="monthly-chart"></canvas></div></div>
+  <div class="card"><h2>Revenue Trajectory — 2026 to 2028</h2><p class="sub">Forecast revenue vs. Quantum targets, assuming rep growth proportional to Quantum plan</p><div class="chart-wrap"><canvas id="trajectory-chart"></canvas></div></div>
+</div>
+
+<div class="tab-panel hidden" id="panel-data">
+  <div class="card">
+    <h2>Pull Actuals From Site Data</h2>
+    <p class="sub">Reads YTD deals, installs, pull-through, and active rep counts from the site's central Jobflo upload (at <a href="/upload" target="_blank" rel="noopener" style="color:#00B8F3;">/upload</a>). The model converts the date span into "effective months" via your seasonality index so partial-period data isn't biased by low/high seasons.</p>
+    <div class="flex-center mt-3" style="gap:12px;flex-wrap:wrap;">
+      <button class="btn primary" id="fetch-actuals-btn" onclick="fetchActualsFromSite()">Pull latest from site</button>
+      <span id="fetch-actuals-status" class="text-xs text-muted"></span>
+    </div>
+    <div class="mt-3 text-xs text-muted">No more separate file upload here — the site's <code>/upload</code> page is the single source of truth. Re-upload there and click this button to refresh.</div>
+  </div>
+  <div class="card hidden" id="data-summary-card">
+    <div class="flex-between"><div><h2>Parsed Summary</h2><p class="sub" id="data-file-info"></p></div><button class="btn ghost" onclick="clearUploadedData()">Clear</button></div>
+    <div class="grid grid-4 mt-3" id="data-kpis"></div>
+    <div class="mt-4" id="data-breakdown"></div>
+    <div class="mt-4" id="data-apply"></div>
+  </div>
+</div>
+
+<div class="tab-panel hidden" id="panel-settings">
+  <div class="card"><h2>Revenue Assumptions</h2><p class="sub">Base unit economics used throughout the model</p><div class="grid grid-2 mt-3"><div><label>Revenue per Install</label><input type="number" id="in-rev-per-install" value="35000" step="1000"/></div></div></div>
+  <div class="card"><h2>Seasonality Index</h2><p class="sub">Monthly weight where 100 = average month. Historical Empower values shown.</p><div class="grid grid-6 mt-3" id="seasonality-grid"></div><button class="btn secondary mt-3" onclick="resetSeasonality()">Reset to defaults</button></div>
+  <div class="card">
+    <h2>Branch Weights</h2>
+    <p class="sub">Share of total forecast by branch. Must sum to 100% — the live total is shown below.</p>
+    <div class="snapshot-status empty" id="snapshot-status-settings"></div>
+    <table><thead><tr><th>Region</th><th>Branch</th><th class="num">Weight (%)</th></tr></thead><tbody id="weights-tbody"></tbody><tfoot><tr class="total"><td colspan="2">Total</td><td class="num" id="weights-total">—</td></tr></tfoot></table>
+    <div class="flex-center mt-3" style="flex-wrap: wrap;"><button class="btn secondary" onclick="resetWeights()">Equal split</button><button class="btn secondary" onclick="apply2025Splits()">Apply 2025 actuals</button><button class="btn secondary" onclick="apply2026YTDSplits()">Apply 2026 YTD</button><button class="btn secondary" onclick="normalizeWeights()">Normalize to 100%</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Scenarios</h2>
+    <p class="sub">Save the current forecast as a named scenario. Each snapshot captures the full state — weights, reps, productivity, seasonality, revenue per install, and period. <strong>Snapshots are saved to Supabase and shared across the team.</strong> JSON export/import still works for offline backup.</p>
+    <div class="flex-center mt-3" style="flex-wrap: wrap;">
+      <button class="btn primary" id="save-snapshot-btn" onclick="showSaveSnapshotForm()">+ Save current as snapshot</button>
+      <button class="btn secondary" onclick="document.getElementById('import-snapshot-input').click()">Import JSON</button>
+      <input type="file" id="import-snapshot-input" accept=".json" style="display:none"/>
+    </div>
+    <div class="save-form hidden mt-3" id="save-snapshot-form">
+      <input type="text" id="snapshot-name-input" placeholder="Snapshot name"/>
+      <button class="btn primary small" onclick="confirmSaveSnapshot()">Save</button>
+      <button class="btn ghost small" onclick="cancelSaveSnapshot()">Cancel</button>
+    </div>
+    <div class="snapshots-list mt-3" id="snapshots-list"></div>
+  </div>
+
+  <div class="card"><h2>Reset</h2><p class="sub">Clear all saved inputs and restore defaults (snapshots are kept).</p><button class="btn secondary mt-3" onclick="resetAll()">Reset all settings</button></div>
+</div>
+
+</div>
+<script>
+const QUANTUM = {
+  milestones: [
+    { id: 1, name: 'M1', period: 'H1 2026', targetRevenue: 70400000, targetReps: 251 },
+    { id: 2, name: 'M2', period: 'H2 2026', targetRevenue: 80100000, targetReps: 285 },
+    { id: 3, name: 'M3', period: 'H1 2027', targetRevenue: 91100000, targetReps: 324 },
+    { id: 4, name: 'M4', period: 'H2 2027', targetRevenue: 103600000, targetReps: 368 },
+    { id: 5, name: 'M5', period: 'H1 2028', targetRevenue: 117800000, targetReps: 418 },
+    { id: 6, name: 'M6', period: 'H2 2028', targetRevenue: 134000000, targetReps: 475 },
+  ],
+  annualTargets: { 2026: 150500000, 2027: 194700000, 2028: 251800000 },
+  avgReps: { 2026: (251+285)/2, 2027: (324+368)/2, 2028: (418+475)/2 }
+};
+const DEFAULT_SEASONALITY = { 1: 56, 2: 74, 3: 80, 4: 86, 5: 132, 6: 147, 7: 154, 8: 154, 9: 128, 10: 75, 11: 61, 12: 51 };
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const QUARTERS = { Q1: [1,2,3], Q2: [4,5,6], Q3: [7,8,9], Q4: [10,11,12] };
+const BRANCHES = [
+  { id: 'stockton', name: 'Stockton', state: 'CA' },
+  { id: 'fresno', name: 'Fresno', state: 'CA' },
+  { id: 'valencia', name: 'Valencia', state: 'CA' },
+  { id: 'riverside', name: 'Riverside', state: 'CA' },
+  { id: 'phoenix', name: 'Phoenix', state: 'AZ' },
+  { id: 'houston', name: 'Houston', state: 'TX' },
+];
+const STATE_NAMES = { CA: 'California', AZ: 'Arizona', TX: 'Texas' };
+const BRANCH_COLORS = {
+  stockton: '#0c4a6e', fresno: '#0369a1', valencia: '#0ea5e9', riverside: '#7dd3fc',
+  phoenix: '#d97706', houston: '#059669'
+};
+const DEFAULT_WEIGHTS = Object.fromEntries(BRANCHES.map(b => [b.id, +(100/BRANCHES.length).toFixed(2)]));
+const HISTORICAL_2025 = {
+  source: '6,247 deals · Jobflo customer export (Conversion At in 2025)',
+  splits: { stockton: 16.5, fresno: 35.8, valencia: 0.0, riverside: 25.4, phoenix: 17.9, houston: 4.4 },
+};
+const HISTORICAL_2026_YTD = {
+  source: '1,270 deals · YTD through Apr 16, 2026 (Jobflo Conversion At)',
+  splits: { stockton: 20.5, fresno: 21.0, valencia: 0.8, riverside: 17.8, phoenix: 29.2, houston: 10.7 },
+};
+const SCENARIO_FIELDS = ['activeReps','dealsPerRep','pullThrough','quarter','year','seasonality','weights','revenuePerInstall'];
+const STATE_KEY = 'empower-forecast-v1';
+const defaultState = () => ({
+  activeReps: 250, dealsPerRep: 2.2, pullThrough: 50, quarter: 'Full', year: 2026,
+  seasonality: { ...DEFAULT_SEASONALITY }, weights: { ...DEFAULT_WEIGHTS },
+  revenuePerInstall: 35000, uploadedData: null, branchMetric: 'revenue',
+  weightsUpdatedAt: null, snapshots: [],
+});
+let state = loadState();
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return defaultState();
+    const parsed = JSON.parse(raw);
+    return { ...defaultState(), ...parsed, seasonality: { ...DEFAULT_SEASONALITY, ...(parsed.seasonality || {}) }, weights: { ...DEFAULT_WEIGHTS, ...(parsed.weights || {}) }, snapshots: Array.isArray(parsed.snapshots) ? parsed.snapshots : [] };
+  } catch (e) { return defaultState(); }
+}
+function saveState() { try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch (e) {} }
+function markWeightsUpdated() { state.weightsUpdatedAt = new Date().toISOString(); }
+function formatCurrency(v) {
+  if (v == null || isNaN(v)) return '—';
+  if (Math.abs(v) >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e3) return '$' + Math.round(v/1e3) + 'K';
+  return '$' + Math.round(v);
+}
+function formatCurrencyShort(v) {
+  if (v == null || isNaN(v)) return '—';
+  if (Math.abs(v) >= 1e9) return '$' + (v/1e9).toFixed(1) + 'B';
+  if (Math.abs(v) >= 1e6) return '$' + Math.round(v/1e6) + 'M';
+  if (Math.abs(v) >= 1e3) return '$' + Math.round(v/1e3) + 'K';
+  return '$' + Math.round(v);
+}
+function formatNumber(v) { if (v == null || isNaN(v)) return '—'; return Math.round(v).toLocaleString(); }
+function formatPct(v) { if (v == null || isNaN(v)) return '—'; return v.toFixed(1) + '%'; }
+function formatTimestamp(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let h = d.getHours();
+    const m = d.getMinutes().toString().padStart(2,'0');
+    const ampm = h >= 12 ? 'pm' : 'am';
+    h = h % 12 || 12;
+    return months[d.getMonth()] + ' ' + d.getDate() + ' · ' + h + ':' + m + ampm;
+  } catch (e) { return '—'; }
+}
+function formatRelativeTime(iso) {
+  if (!iso) return '—';
+  try {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 60000) return 'just now';
+    if (ms < 3600000) return Math.round(ms/60000) + ' min ago';
+    if (ms < 86400000) return Math.round(ms/3600000) + ' hr ago';
+    if (ms < 7*86400000) return Math.round(ms/86400000) + 'd ago';
+    return formatTimestamp(iso);
+  } catch (e) { return '—'; }
+}
+function genId() { return 'snap-' + Date.now() + '-' + Math.random().toString(36).slice(2,8); }
+function getLatestSnapshotInfo() {
+  if (!state.snapshots || state.snapshots.length === 0) return null;
+  const sorted = [...state.snapshots].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const latest = sorted[0];
+  const snapWeights = (latest.scenario && latest.scenario.weights) || {};
+  const weightsMatch = BRANCHES.every(b => {
+    const cur = state.weights[b.id] || 0;
+    const snap = snapWeights[b.id] || 0;
+    return Math.abs(cur - snap) < 0.05;
+  });
+  const drifted = BRANCHES
+    .map(b => ({ name: b.name, d: (state.weights[b.id] || 0) - (snapWeights[b.id] || 0) }))
+    .filter(x => Math.abs(x.d) >= 0.05)
+    .sort((a,b) => Math.abs(b.d) - Math.abs(a.d));
+  return { snapshot: latest, weightsMatch, drifted };
+}
+function renderSnapshotStatus(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const info = getLatestSnapshotInfo();
+  if (!info) {
+    el.className = 'snapshot-status empty';
+    el.innerHTML = '<span class="ss-icon">📌</span><span>No snapshot saved yet.</span><span class="ss-meta">Save the current state in <a href="#" onclick="showTab(\'settings\'); return false;" style="color: inherit; text-decoration: underline;">Settings → Scenarios</a> to start versioning.</span>';
+    return;
+  }
+  const ts = formatTimestamp(info.snapshot.createdAt);
+  const rel = formatRelativeTime(info.snapshot.createdAt);
+  if (info.weightsMatch) {
+    el.className = 'snapshot-status matches';
+    el.innerHTML = '<span class="ss-icon">✓</span><span>Weights match latest snapshot: <strong>' + escapeHtml(info.snapshot.name) + '</strong></span><span class="ss-meta">saved ' + rel + ' · ' + ts + '</span>';
+  } else {
+    const driftedNames = info.drifted.slice(0,3).map(x => x.name + ' ' + (x.d > 0 ? '+' : '') + x.d.toFixed(1) + '%').join(' · ');
+    el.className = 'snapshot-status edited';
+    el.innerHTML = '<span class="ss-icon">⚠</span><span>Weights edited since last snapshot: <strong>' + escapeHtml(info.snapshot.name) + '</strong></span><span class="ss-meta">saved ' + rel + ' · ' + ts + '</span>' + (driftedNames ? '<span class="ss-meta" style="width:100%;">Drift: ' + driftedNames + '</span>' : '');
+  }
+}
+// Returns the Quantum target for the current period.
+// FIX (audit 2026-04): For quarter views, prorate the H-target by the quarter's seasonality share
+// so the gap and reps-needed numbers compare apples to apples.
+function getQuantumTarget() {
+  if (state.quarter === 'Full') {
+    const m = QUANTUM.milestones.find(x => x.period.includes(state.year));
+    return { type: 'annual', target: QUANTUM.annualTargets[state.year] || null, reps: m ? m.targetReps : null };
+  }
+  const half = (state.quarter === 'Q1' || state.quarter === 'Q2') ? 'H1' : 'H2';
+  const m = QUANTUM.milestones.find(x => x.period === half + ' ' + state.year);
+  if (!m) return null;
+  const halfMonths = half === 'H1' ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+  const halfSeason = halfMonths.reduce((s, mo) => s + (state.seasonality[mo] || 0), 0);
+  const quarterSeason = QUARTERS[state.quarter].reduce((s, mo) => s + (state.seasonality[mo] || 0), 0);
+  const share = halfSeason > 0 ? quarterSeason / halfSeason : 0.5;
+  return {
+    type: 'quarter',
+    target: m.targetRevenue * share,
+    reps: m.targetReps,
+    name: state.quarter + ' ' + state.year,
+    parentName: m.name,
+    parentPeriod: m.period,
+    parentTarget: m.targetRevenue,
+    quarterShare: share,
+  };
+}
+function computePredictions() {
+  const pullRate = state.pullThrough / 100;
+  const reps = Number(state.activeReps) || 0;
+  const dpr = Number(state.dealsPerRep) || 0;
+  const months = state.quarter === 'Full' ? [1,2,3,4,5,6,7,8,9,10,11,12] : QUARTERS[state.quarter];
+  const monthlyDeals = months.map(m => reps * dpr * (state.seasonality[m] / 100));
+  const adjustedDeals = monthlyDeals.reduce((a,b) => a+b, 0);
+  const avgSeasonality = months.reduce((s,m) => s + state.seasonality[m], 0) / months.length;
+  const expectedInstalls = adjustedDeals * pullRate;
+  const varMul = state.quarter === 'Full' ? 0.3 : 0.5;
+  const variance = adjustedDeals * 0.23 * varMul;
+  const installVariance = variance * pullRate;
+  const revPer = Number(state.revenuePerInstall) || 35000;
+  return {
+    monthlyDeals,
+    deals: { conservative: Math.max(0, adjustedDeals - 0.5*variance), expected: adjustedDeals, optimistic: adjustedDeals + 0.5*variance },
+    installs: { conservative: Math.max(0, expectedInstalls - 0.5*installVariance), expected: expectedInstalls, optimistic: expectedInstalls + 0.5*installVariance },
+    revenue: { conservative: Math.max(0, expectedInstalls - 0.5*installVariance)*revPer, expected: expectedInstalls*revPer, optimistic: (expectedInstalls + 0.5*installVariance)*revPer },
+    seasonalFactor: avgSeasonality,
+    rawExpectedRevenue: expectedInstalls * revPer,
+  };
+}
+function scenarioRevenue(s) {
+  const months = s.quarter === 'Full' ? [1,2,3,4,5,6,7,8,9,10,11,12] : QUARTERS[s.quarter];
+  const deals = months.reduce((sum, m) => sum + s.activeReps * s.dealsPerRep * ((s.seasonality && s.seasonality[m]) || 0)/100, 0);
+  return deals * (s.pullThrough / 100) * (s.revenuePerInstall || 35000);
+}
+// FIX (audit 2026-04): repsNeeded now uses the seasonality sum of the period
+// instead of just monthsInPeriod. This gives correct reps-needed even for off-peak quarters.
+function computeQuantumAnalysis(predictions) {
+  const target = getQuantumTarget();
+  if (!target || !target.target) return null;
+  const revPer = Number(state.revenuePerInstall) || 35000;
+  const gap = target.target - predictions.rawExpectedRevenue;
+  const gapPct = (gap / target.target) * 100;
+  const targetInstalls = target.target / revPer;
+  const installGap = targetInstalls - predictions.installs.expected;
+  const dealsNeeded = targetInstalls / (state.pullThrough / 100);
+  const months = state.quarter === 'Full' ? [1,2,3,4,5,6,7,8,9,10,11,12] : QUARTERS[state.quarter];
+  const seasonSum = months.reduce((s, m) => s + (state.seasonality[m] || 0), 0) / 100;
+  const repsNeeded = (state.dealsPerRep > 0 && seasonSum > 0) ? dealsNeeded / (state.dealsPerRep * seasonSum) : 0;
+  const pullThroughNeeded = predictions.deals.expected > 0 ? Math.min(100, (targetInstalls / predictions.deals.expected) * 100) : 100;
+  return {
+    target, gap, gapPct, onTrack: gap <= 0,
+    targetInstalls: Math.round(targetInstalls), installGap: Math.round(installGap),
+    repsNeeded: Math.round(repsNeeded), repGap: Math.round(repsNeeded - state.activeReps),
+    pullThroughNeeded: Math.round(pullThroughNeeded), pullThroughGap: Math.round(pullThroughNeeded - state.pullThrough),
+  };
+}
+function computeBranchPredictions(predictions) {
+  return BRANCHES.map(b => {
+    const w = (state.weights[b.id] || 0) / 100;
+    return { ...b, weight: state.weights[b.id] || 0, deals: predictions.deals.expected * w, installs: predictions.installs.expected * w, revenue: predictions.revenue.expected * w };
+  });
+}
+function computeBranchMonthly() {
+  const reps = Number(state.activeReps) || 0;
+  const dpr = Number(state.dealsPerRep) || 0;
+  const pullRate = state.pullThrough / 100;
+  const revPer = Number(state.revenuePerInstall) || 35000;
+  const result = {};
+  BRANCHES.forEach(b => {
+    const w = (state.weights[b.id] || 0) / 100;
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const monthlyDeals = reps * dpr * (state.seasonality[m] / 100) * w;
+      const monthlyInstalls = monthlyDeals * pullRate;
+      months.push({ deals: monthlyDeals, installs: monthlyInstalls, revenue: monthlyInstalls * revPer });
+    }
+    result[b.id] = months;
+  });
+  return result;
+}
+// FIX (audit 2026-04): Effective months weighted by seasonality.
+// Walks each calendar month between min and max dates, scales by partial-month fraction
+// at the start/end, and weights by that month's seasonality factor.
+// Returns "equivalent average months" — e.g., 4 calendar months Jan-Apr at low season ≈ 2.96 effective months.
+function effectiveMonthsSeasonal(minDateStr, maxDateStr) {
+  if (!minDateStr || !maxDateStr) return null;
+  const minD = new Date(minDateStr);
+  const maxD = new Date(maxDateStr);
+  if (isNaN(minD.getTime()) || isNaN(maxD.getTime())) return null;
+  if (maxD < minD) return null;
+  let effective = 0;
+  let cur = new Date(minD.getFullYear(), minD.getMonth(), 1);
+  const endMonth = new Date(maxD.getFullYear(), maxD.getMonth(), 1);
+  let safety = 0;
+  while (cur <= endMonth && safety < 240) {
+    const mIdx = cur.getMonth() + 1;
+    const mFactor = (state.seasonality[mIdx] || 0) / 100;
+    const daysInMonth = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate();
+    const sameMin = cur.getFullYear() === minD.getFullYear() && cur.getMonth() === minD.getMonth();
+    const sameMax = cur.getFullYear() === maxD.getFullYear() && cur.getMonth() === maxD.getMonth();
+    let fraction;
+    if (sameMin && sameMax) {
+      fraction = (maxD.getDate() - minD.getDate() + 1) / daysInMonth;
+    } else if (sameMin) {
+      fraction = (daysInMonth - minD.getDate() + 1) / daysInMonth;
+    } else if (sameMax) {
+      fraction = maxD.getDate() / daysInMonth;
+    } else {
+      fraction = 1;
+    }
+    effective += mFactor * fraction;
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    safety++;
+  }
+  return effective;
+}
+function inferredDealsPerRep(d) {
+  if (!d || !d.repCount) return null;
+  const eff = (d.dateMin && d.dateMax) ? effectiveMonthsSeasonal(d.dateMin, d.dateMax) : null;
+  const months = (eff != null && eff > 0) ? eff : (d.monthsSpanned || 0);
+  if (!months) return null;
+  return d.deals / d.repCount / months;
+}
+function apply2025Splits() {
+  Object.keys(HISTORICAL_2025.splits).forEach(k => { state.weights[k] = HISTORICAL_2025.splits[k]; });
+  markWeightsUpdated();
+  saveState(); renderSettings(); rerender();
+}
+function apply2026YTDSplits() {
+  Object.keys(HISTORICAL_2026_YTD.splits).forEach(k => { state.weights[k] = HISTORICAL_2026_YTD.splits[k]; });
+  markWeightsUpdated();
+  saveState(); renderSettings(); rerender();
+}
+
+// SNAPSHOTS
+function showSaveSnapshotForm() {
+  const form = document.getElementById('save-snapshot-form');
+  const btn = document.getElementById('save-snapshot-btn');
+  const input = document.getElementById('snapshot-name-input');
+  input.value = 'Snapshot · ' + formatTimestamp(new Date().toISOString());
+  form.classList.remove('hidden');
+  btn.classList.add('hidden');
+  setTimeout(() => { input.focus(); input.select(); }, 50);
+}
+function cancelSaveSnapshot() {
+  document.getElementById('save-snapshot-form').classList.add('hidden');
+  document.getElementById('save-snapshot-btn').classList.remove('hidden');
+}
+function confirmSaveSnapshot() {
+  const input = document.getElementById('snapshot-name-input');
+  const name = (input.value || '').trim();
+  if (!name) { alert('Please enter a name for this snapshot.'); return; }
+  saveSnapshot(name);
+  cancelSaveSnapshot();
+}
+function snapshotScenario() {
+  return {
+    activeReps: state.activeReps,
+    dealsPerRep: state.dealsPerRep,
+    pullThrough: state.pullThrough,
+    quarter: state.quarter,
+    year: state.year,
+    seasonality: { ...state.seasonality },
+    weights: { ...state.weights },
+    revenuePerInstall: state.revenuePerInstall,
+  };
+}
+async function saveSnapshot(name) {
+  try {
+    const res = await fetch('/api/scenarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, scenario: snapshotScenario() }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert('Save failed: ' + (j.error || res.statusText));
+      return;
+    }
+    await loadSnapshotsFromServer();
+  } catch (e) {
+    alert('Save failed: ' + e.message);
+  }
+}
+function loadSnapshot(id) {
+  const s = state.snapshots.find(x => x.id === id);
+  if (!s) return;
+  if (!confirm('Load "' + s.name + '"? Your current state will be replaced. (Save current as a snapshot first if you want to keep it.)')) return;
+  const sc = s.scenario;
+  state.activeReps = sc.activeReps;
+  state.dealsPerRep = sc.dealsPerRep;
+  state.pullThrough = sc.pullThrough;
+  state.quarter = sc.quarter;
+  state.year = sc.year;
+  state.seasonality = { ...DEFAULT_SEASONALITY, ...(sc.seasonality || {}) };
+  state.weights = { ...DEFAULT_WEIGHTS, ...(sc.weights || {}) };
+  state.revenuePerInstall = sc.revenuePerInstall;
+  markWeightsUpdated();
+  saveState();
+  initInputs();
+  renderSettings();
+  renderSnapshots();
+  rerender();
+}
+async function deleteSnapshot(id) {
+  const s = state.snapshots.find(x => x.id === id);
+  if (!s) return;
+  if (!confirm('Delete snapshot "' + s.name + '"? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      alert('Delete failed: ' + (j.error || res.statusText));
+      return;
+    }
+    await loadSnapshotsFromServer();
+  } catch (e) {
+    alert('Delete failed: ' + e.message);
+  }
+}
+async function loadSnapshotsFromServer() {
+  try {
+    const res = await fetch('/api/scenarios');
+    if (!res.ok) {
+      console.warn('Could not load snapshots from server:', res.status);
+      return;
+    }
+    const data = await res.json();
+    state.snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+    renderSnapshots();
+    renderSnapshotStatus('snapshot-status-branches');
+    renderSnapshotStatus('snapshot-status-settings');
+  } catch (e) {
+    console.warn('Could not load snapshots from server:', e);
+  }
+}
+function exportSnapshot(id) {
+  const s = state.snapshots.find(x => x.id === id);
+  if (!s) return;
+  const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const safeName = s.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase().replace(/^-+|-+$/g, '');
+  a.download = 'empower-scenario-' + safeName + '-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 200);
+}
+async function handleSnapshotImport(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || !data.scenario || !data.name) throw new Error('Not a valid snapshot file (missing name or scenario).');
+    for (const k of SCENARIO_FIELDS) {
+      if (!(k in data.scenario)) throw new Error('Missing field in scenario: ' + k);
+    }
+    // Push imported snapshot up to Supabase so the team sees it.
+    try {
+      await fetch('/api/scenarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: data.name, scenario: data.scenario }),
+      });
+      await loadSnapshotsFromServer();
+      return;
+    } catch (e) { console.warn('Server import failed; keeping local copy', e); }
+    if (!Array.isArray(state.snapshots)) state.snapshots = [];
+    state.snapshots.push({
+      id: genId(),
+      name: data.name + ' (imported)',
+      createdAt: new Date().toISOString(),
+      originalCreatedAt: data.createdAt || null,
+      scenario: data.scenario,
+    });
+    saveState();
+    renderSnapshots();
+    renderSnapshotStatus('snapshot-status-branches');
+    renderSnapshotStatus('snapshot-status-settings');
+    alert('Imported "' + data.name + '"');
+  } catch (e) {
+    alert('Import failed: ' + e.message);
+  }
+  const inp = document.getElementById('import-snapshot-input'); if (inp) inp.value = '';
+}
+function snapshotSummary(scenario) {
+  const rev = scenarioRevenue(scenario);
+  return scenario.activeReps + ' reps · ' + scenario.dealsPerRep + ' d/r · ' + scenario.pullThrough + '% PT · ' + formatCurrency(rev) + ' · ' + (scenario.quarter === 'Full' ? scenario.year + ' FY' : scenario.quarter + ' ' + scenario.year);
+}
+function renderSnapshots() {
+  const list = document.getElementById('snapshots-list');
+  if (!list) return;
+  if (!state.snapshots || state.snapshots.length === 0) {
+    list.innerHTML = '<div class="empty" style="padding: 24px;">No snapshots yet. Save the current forecast to create one.</div>';
+    return;
+  }
+  const sorted = [...state.snapshots].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  list.innerHTML = sorted.map(s => {
+    const activeBadge = s.isActiveTarget
+      ? '<span class="snapshot-active-badge" style="font-size:11px;font-weight:600;color:#00B8F3;margin-left:8px;">★ ACTIVE TARGET</span>'
+      : '';
+    const activateBtn = s.isActiveTarget
+      ? '<button class="btn ghost small" disabled title="Currently driving the Dashboard">★ Active</button>'
+      : '<button class="btn secondary small" onclick="activateSnapshot(\'' + s.id + '\')" title="Use this scenario for the Dashboard target + per-install rate">Set as active</button>';
+    return '<div class="snapshot-card">' +
+      '<div class="snapshot-info">' +
+        '<div class="snapshot-name">' + escapeHtml(s.name) + activeBadge + '</div>' +
+        '<div class="snapshot-meta">' + formatTimestamp(s.createdAt) + ' · ' + escapeHtml(snapshotSummary(s.scenario)) + '</div>' +
+      '</div>' +
+      '<div class="snapshot-actions">' +
+        activateBtn +
+        '<button class="btn secondary small" onclick="loadSnapshot(\'' + s.id + '\')">Load</button>' +
+        '<button class="btn ghost small" onclick="exportSnapshot(\'' + s.id + '\')">Export</button>' +
+        '<button class="btn danger small" onclick="deleteSnapshot(\'' + s.id + '\')">Delete</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function activateSnapshot(id) {
+  try {
+    const res = await fetch('/api/scenarios/' + encodeURIComponent(id) + '/activate', { method: 'POST' });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Activate failed');
+    await loadSnapshotsFromServer();
+  } catch (e) {
+    alert('Could not set active target: ' + (e && e.message ? e.message : e));
+  }
+}
+
+let charts = {};
+function periodLabel() { return state.quarter === 'Full' ? state.year + ' Full Year' : state.quarter + ' ' + state.year; }
+function targetSubLabel(t) {
+  if (!t) return '';
+  if (t.type === 'annual') return 'Annual · ' + state.year;
+  if (t.type === 'quarter') return state.quarter + ' · ' + (t.quarterShare * 100).toFixed(1) + '% share of ' + t.parentPeriod + ' (' + formatCurrency(t.parentTarget) + ')';
+  return (t.name || '') + ' · ' + (t.period || '');
+}
+function renderForecast(predictions, quantum) {
+  document.getElementById('forecast-period-label').textContent = 'Forecast — ' + periodLabel();
+  document.getElementById('season-factor').textContent = predictions.seasonalFactor.toFixed(0);
+  document.getElementById('kpi-deals').textContent = formatNumber(predictions.deals.expected);
+  document.getElementById('kpi-installs').textContent = formatNumber(predictions.installs.expected);
+  document.getElementById('kpi-revenue').textContent = formatCurrency(predictions.revenue.expected);
+  document.getElementById('band-deals-low').textContent = formatNumber(predictions.deals.conservative);
+  document.getElementById('band-deals-mid').textContent = formatNumber(predictions.deals.expected);
+  document.getElementById('band-deals-high').textContent = formatNumber(predictions.deals.optimistic);
+  document.getElementById('band-installs-low').textContent = formatNumber(predictions.installs.conservative);
+  document.getElementById('band-installs-mid').textContent = formatNumber(predictions.installs.expected);
+  document.getElementById('band-installs-high').textContent = formatNumber(predictions.installs.optimistic);
+  document.getElementById('band-rev-low').textContent = formatCurrencyShort(predictions.revenue.conservative);
+  document.getElementById('band-rev-mid').textContent = formatCurrencyShort(predictions.revenue.expected);
+  document.getElementById('band-rev-high').textContent = formatCurrencyShort(predictions.revenue.optimistic);
+  const qt = getQuantumTarget();
+  const useBtn = document.getElementById('use-target-reps');
+  const note = document.getElementById('rep-target-note');
+  if (qt && qt.reps && qt.reps !== Number(state.activeReps)) {
+    useBtn.textContent = 'Use target (' + qt.reps + ')';
+    useBtn.classList.remove('hidden');
+    useBtn.onclick = () => { state.activeReps = qt.reps; document.getElementById('in-reps').value = qt.reps; saveState(); rerender(); };
+    note.textContent = 'Quantum target: ' + qt.reps + ' reps';
+  } else if (qt && qt.reps) { useBtn.classList.add('hidden'); note.textContent = 'Quantum target: ' + qt.reps + ' reps · ✓ matched'; }
+  else { useBtn.classList.add('hidden'); note.textContent = ''; }
+  const qBody = document.getElementById('quantum-body');
+  if (!quantum) { qBody.innerHTML = '<div class="empty">No Quantum target defined for this period.</div>'; return; }
+  const status = quantum.onTrack
+    ? '<span class="pill green">On track · ' + formatCurrency(-quantum.gap) + ' above target</span>'
+    : '<span class="pill yellow">Behind · ' + formatPct(quantum.gapPct) + ' gap (' + formatCurrency(quantum.gap) + ')</span>';
+  const pct = Math.min(100, Math.max(0, (predictions.rawExpectedRevenue / quantum.target.target) * 100));
+  qBody.innerHTML =
+    '<div class="grid grid-2 mt-3">' +
+      '<div class="kpi"><div class="kpi-label">Target revenue</div><div class="kpi-value">' + formatCurrency(quantum.target.target) + '</div><div class="kpi-sub">' + targetSubLabel(quantum.target) + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Your forecast</div><div class="kpi-value">' + formatCurrency(predictions.rawExpectedRevenue) + '</div><div class="kpi-sub">' + status + '</div></div>' +
+    '</div>' +
+    '<div class="mt-4">' +
+      '<div class="flex-between text-xs text-muted"><div>Progress to target</div><div><strong>' + pct.toFixed(1) + '%</strong></div></div>' +
+      '<div class="progress mt-2"><div class="progress-bar ' + (quantum.onTrack ? 'over' : 'behind') + '" style="width:' + pct + '%"></div></div>' +
+    '</div>' +
+    '<div class="grid grid-3 mt-4">' +
+      '<div class="kpi"><div class="kpi-label">Reps needed<span class="tip">?<span class="tip-body">Reps required at current dpr and pull-through to hit the (period-prorated) target. Calculation accounts for the period\'s seasonality.</span></span></div><div class="kpi-value">' + formatNumber(quantum.repsNeeded) + '</div><div class="kpi-sub">' + (quantum.repGap > 0 ? '+' + formatNumber(quantum.repGap) + ' more' : quantum.repGap === 0 ? '✓ at target' : formatNumber(-quantum.repGap) + ' extra capacity') + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Pull-through needed</div><div class="kpi-value">' + quantum.pullThroughNeeded + '%</div><div class="kpi-sub">' + (quantum.pullThroughGap > 0 ? '+' + quantum.pullThroughGap + '% improvement' : quantum.pullThroughGap === 0 ? '✓ at target' : Math.abs(quantum.pullThroughGap) + '% margin') + '</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Install gap</div><div class="kpi-value">' + formatNumber(Math.abs(quantum.installGap)) + '</div><div class="kpi-sub">' + (quantum.installGap > 0 ? 'installs short' : 'installs ahead') + '</div></div>' +
+    '</div>';
+}
+function renderBranches(predictions) {
+  document.getElementById('branch-period-pill').textContent = periodLabel();
+  const bp = computeBranchPredictions(predictions);
+  const totalRev = bp.reduce((s,b) => s + b.revenue, 0);
+  const byState = { CA: [], AZ: [], TX: [] };
+  bp.forEach(b => byState[b.state].push(b));
+  const tbody = document.getElementById('branch-tbody');
+  tbody.innerHTML = '';
+  Object.keys(byState).forEach(stateKey => {
+    const rows = byState[stateKey];
+    if (rows.length === 0) return;
+    const rDeals = rows.reduce((s,r) => s + r.deals, 0);
+    const rInstalls = rows.reduce((s,r) => s + r.installs, 0);
+    const rRev = rows.reduce((s,r) => s + r.revenue, 0);
+    const rW = rows.reduce((s,r) => s + r.weight, 0);
+    tbody.innerHTML += '<tr class="region"><td>' + STATE_NAMES[stateKey] + ' (' + stateKey + ')</td><td class="num">' + rW.toFixed(1) + '%</td><td class="num">' + formatNumber(rDeals) + '</td><td class="num">' + formatNumber(rInstalls) + '</td><td class="num">' + formatCurrency(rRev) + '</td><td class="num">' + formatPct(totalRev > 0 ? (rRev/totalRev)*100 : 0) + '</td></tr>';
+    rows.forEach(b => {
+      tbody.innerHTML += '<tr><td style="padding-left: 24px;">' + b.name + '</td><td class="num">' + b.weight.toFixed(1) + '%</td><td class="num">' + formatNumber(b.deals) + '</td><td class="num">' + formatNumber(b.installs) + '</td><td class="num">' + formatCurrency(b.revenue) + '</td><td class="num">' + formatPct(totalRev > 0 ? (b.revenue/totalRev)*100 : 0) + '</td></tr>';
+    });
+  });
+  tbody.innerHTML += '<tr class="total"><td colspan="2">Total</td><td class="num">' + formatNumber(bp.reduce((s,b)=>s+b.deals,0)) + '</td><td class="num">' + formatNumber(bp.reduce((s,b)=>s+b.installs,0)) + '</td><td class="num">' + formatCurrency(totalRev) + '</td><td class="num">100%</td></tr>';
+  renderReference();
+  renderBranchMonthly();
+  if (charts.branch) charts.branch.destroy();
+  const ctx = document.getElementById('branch-chart');
+  if (ctx && typeof Chart !== 'undefined') {
+    charts.branch = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: bp.map(b => b.name + ' (' + b.state + ')'), datasets: [{ label: 'Revenue', data: bp.map(b => b.revenue), backgroundColor: bp.map(b => BRANCH_COLORS[b.id]), borderRadius: 6 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => formatCurrency(c.raw) } } }, scales: { y: { ticks: { callback: v => formatCurrency(v) }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+    });
+  }
+}
+function renderReference() {
+  const tbody = document.getElementById('reference-tbody');
+  const callout = document.getElementById('reference-callout');
+  const active = document.activeElement;
+  const focusedRefBranch = (active && active.dataset && active.dataset.refBranch) ? active.dataset.refBranch : null;
+  let cursorPos = null;
+  if (focusedRefBranch) { try { cursorPos = active.selectionStart; } catch(e) {} }
+  tbody.innerHTML = '';
+  const byState = { CA: [], AZ: [], TX: [] };
+  BRANCHES.forEach(b => byState[b.state].push(b));
+  Object.keys(byState).forEach(stateKey => {
+    const branches = byState[stateKey];
+    if (branches.length === 0) return;
+    const region2025 = branches.reduce((s, b) => s + (HISTORICAL_2025.splits[b.id] || 0), 0);
+    const region2026 = branches.reduce((s, b) => s + (HISTORICAL_2026_YTD.splits[b.id] || 0), 0);
+    const regionCurrent = branches.reduce((s, b) => s + (state.weights[b.id] || 0), 0);
+    const delta = regionCurrent - region2025;
+    const deltaCls = Math.abs(delta) < 0.05 ? 'delta-zero' : delta > 0 ? 'delta-pos' : 'delta-neg';
+    tbody.innerHTML += '<tr class="region"><td>' + STATE_NAMES[stateKey] + ' (' + stateKey + ')</td><td class="num">' + region2025.toFixed(1) + '%</td><td class="num">' + region2026.toFixed(1) + '%</td><td class="num">' + regionCurrent.toFixed(1) + '%</td><td class="num ' + deltaCls + '">' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + '%</td></tr>';
+    branches.forEach(b => {
+      const r25 = HISTORICAL_2025.splits[b.id] || 0;
+      const r26 = HISTORICAL_2026_YTD.splits[b.id] || 0;
+      const c = state.weights[b.id] || 0;
+      const d = c - r25;
+      const cls = Math.abs(d) < 0.05 ? 'delta-zero' : d > 0 ? 'delta-pos' : 'delta-neg';
+      tbody.innerHTML += '<tr><td style="padding-left: 24px;">' + b.name + '</td><td class="num">' + r25.toFixed(1) + '%</td><td class="num">' + r26.toFixed(1) + '%</td><td class="num"><input type="number" class="editable-input" data-ref-branch="' + b.id + '" value="' + c + '" min="0" max="100" step="0.1"/></td><td class="num ' + cls + '">' + (d >= 0 ? '+' : '') + d.toFixed(1) + '%</td></tr>';
+    });
+  });
+  document.querySelectorAll('#reference-tbody input[data-ref-branch]').forEach(inp => {
+    inp.oninput = (e) => {
+      const id = e.target.dataset.refBranch;
+      state.weights[id] = Number(e.target.value) || 0;
+      markWeightsUpdated();
+      saveState();
+      rerender();
+    };
+    inp.onkeydown = (e) => { e.stopPropagation(); };
+  });
+  if (focusedRefBranch) {
+    const newInput = document.querySelector('#reference-tbody input[data-ref-branch="' + focusedRefBranch + '"]');
+    if (newInput) {
+      newInput.focus();
+      if (cursorPos != null) { try { newInput.setSelectionRange(cursorPos, cursorPos); } catch(e) {} }
+    }
+  }
+  const total = Object.values(state.weights).reduce((s,w) => s + (w||0), 0);
+  const totalEl = document.getElementById('reference-weights-total');
+  if (totalEl) {
+    totalEl.innerHTML = total.toFixed(1) + '% ' + (Math.abs(total - 100) < 0.05 ? '<span class="pill green">OK</span>' : '<span class="pill yellow">' + (total > 100 ? '+' : '') + (total - 100).toFixed(1) + '</span>');
+  }
+  renderSnapshotStatus('snapshot-status-branches');
+  const diffs25 = BRANCHES.map(b => ({ name: b.name, d: (state.weights[b.id] || 0) - (HISTORICAL_2025.splits[b.id] || 0) })).sort((a,b) => Math.abs(b.d) - Math.abs(a.d));
+  const diffs26 = BRANCHES.map(b => ({ name: b.name, d: (state.weights[b.id] || 0) - (HISTORICAL_2026_YTD.splits[b.id] || 0) })).sort((a,b) => Math.abs(b.d) - Math.abs(a.d));
+  const matches25 = diffs25.every(x => Math.abs(x.d) < 0.05);
+  const matches26 = diffs26.every(x => Math.abs(x.d) < 0.05);
+  let msg;
+  if (matches25 && matches26) {
+    msg = '<strong>✓ Weights match both 2025 and 2026 YTD.</strong>';
+  } else if (matches25) {
+    msg = '<strong>Weights match 2025 actuals.</strong> 2026 YTD is shifting — biggest divergences: ' + diffs26.slice(0,2).map(t => t.name + ' ' + (t.d > 0 ? '+' : '') + t.d.toFixed(1) + '%').join(' · ');
+  } else if (matches26) {
+    msg = '<strong>✓ Weights match 2026 YTD trajectory.</strong>';
+  } else {
+    msg = '<strong>Biggest divergences vs. 2025:</strong> ' + diffs25.slice(0,2).map(t => t.name + ' ' + (t.d > 0 ? '+' : '') + t.d.toFixed(1) + '%').join(' · ') + '. <strong>vs. 2026 YTD:</strong> ' + diffs26.slice(0,2).map(t => t.name + ' ' + (t.d > 0 ? '+' : '') + t.d.toFixed(1) + '%').join(' · ');
+  }
+  callout.innerHTML = msg + ' <div class="text-muted mt-2 text-xs">2025: ' + HISTORICAL_2025.source + '<br/>2026 YTD: ' + HISTORICAL_2026_YTD.source + '</div>';
+}
+function renderBranchMonthly() {
+  const metric = state.branchMetric || 'revenue';
+  const monthly = computeBranchMonthly();
+  const format = metric === 'revenue' ? formatCurrency : formatNumber;
+  const activeMonths = state.quarter === 'Full' ? [1,2,3,4,5,6,7,8,9,10,11,12] : QUARTERS[state.quarter];
+  const activeSet = new Set(activeMonths);
+  const thead = document.getElementById('branch-month-thead');
+  thead.innerHTML = '<tr><th>Branch</th>' + MONTH_NAMES.map((n, i) => '<th class="num' + (activeSet.has(i+1) ? ' active-month' : '') + '">' + n + '</th>').join('') + '<th class="num">Total</th></tr>';
+  const tbody = document.getElementById('branch-month-tbody');
+  tbody.innerHTML = '';
+  const byState = { CA: [], AZ: [], TX: [] };
+  BRANCHES.forEach(b => byState[b.state].push(b));
+  const grandTotals = Array(12).fill(0);
+  Object.keys(byState).forEach(stateKey => {
+    const branches = byState[stateKey];
+    if (branches.length === 0) return;
+    const regionMonths = Array(12).fill(0);
+    branches.forEach(b => { monthly[b.id].forEach((m, i) => { regionMonths[i] += m[metric]; }); });
+    const regionTotal = regionMonths.reduce((s,v) => s + v, 0);
+    tbody.innerHTML += '<tr class="region"><td>' + STATE_NAMES[stateKey] + ' (' + stateKey + ')</td>' + regionMonths.map((v, i) => '<td class="num' + (activeSet.has(i+1) ? ' active-month' : '') + '">' + format(v) + '</td>').join('') + '<td class="num">' + format(regionTotal) + '</td></tr>';
+    branches.forEach(b => {
+      const bMonths = monthly[b.id].map(m => m[metric]);
+      const bTotal = bMonths.reduce((s,v) => s + v, 0);
+      bMonths.forEach((v, i) => { grandTotals[i] += v; });
+      tbody.innerHTML += '<tr><td style="padding-left: 24px;">' + b.name + '</td>' + bMonths.map((v, i) => '<td class="num' + (activeSet.has(i+1) ? ' active-month' : '') + '">' + format(v) + '</td>').join('') + '<td class="num">' + format(bTotal) + '</td></tr>';
+    });
+  });
+  const grandSum = grandTotals.reduce((s,v) => s + v, 0);
+  tbody.innerHTML += '<tr class="total"><td>Total</td>' + grandTotals.map(v => '<td class="num">' + format(v) + '</td>').join('') + '<td class="num">' + format(grandSum) + '</td></tr>';
+  document.querySelectorAll('#metric-toggle .tab').forEach(t => t.classList.toggle('active', t.dataset.metric === metric));
+  if (charts.branchMonth) charts.branchMonth.destroy();
+  const ctx = document.getElementById('branch-month-chart');
+  if (ctx && typeof Chart !== 'undefined') {
+    const datasets = BRANCHES.map(b => ({
+      label: b.name + ' (' + b.state + ')',
+      data: monthly[b.id].map(m => m[metric]),
+      backgroundColor: BRANCH_COLORS[b.id],
+      borderRadius: 3,
+      stack: 'branches',
+    }));
+    charts.branchMonth = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: MONTH_NAMES, datasets },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: { callbacks: { label: c => c.dataset.label + ': ' + format(c.raw) } } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { callback: v => format(v) }, grid: { color: '#f1f5f9' } } } }
+    });
+  }
+}
+function renderTargets() {
+  const tbody = document.getElementById('milestones-tbody');
+  tbody.innerHTML = '';
+  QUANTUM.milestones.forEach(m => {
+    const year = parseInt(m.period.match(/\d{4}/)[0]);
+    let projectedReps = state.activeReps;
+    if (year === 2027) projectedReps = Math.round(QUANTUM.avgReps[2027] * (state.activeReps / QUANTUM.avgReps[2026]));
+    if (year === 2028) projectedReps = Math.round(QUANTUM.avgReps[2028] * (state.activeReps / QUANTUM.avgReps[2026]));
+    const months = m.period.startsWith('H1') ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+    const fd = months.reduce((s,mo) => s + projectedReps * state.dealsPerRep * (state.seasonality[mo]/100), 0);
+    const fr = fd * (state.pullThrough/100) * (Number(state.revenuePerInstall) || 35000);
+    const gap = fr - m.targetRevenue;
+    const status = gap >= 0 ? '<span class="pill green">On track</span>' : (gap > -m.targetRevenue*0.1 ? '<span class="pill yellow">Close</span>' : '<span class="pill red">Behind</span>');
+    tbody.innerHTML += '<tr><td><strong>' + m.name + '</strong></td><td>' + m.period + '</td><td class="num">' + m.targetReps + '</td><td class="num">' + projectedReps + '</td><td class="num">' + formatCurrency(m.targetRevenue) + '</td><td class="num">' + formatCurrency(fr) + '</td><td class="num">' + (gap >= 0 ? '+' : '') + formatCurrency(gap) + '</td><td>' + status + '</td></tr>';
+  });
+  const annualCards = document.getElementById('annual-cards');
+  annualCards.innerHTML = '';
+  [2026, 2027, 2028].forEach(year => {
+    let projectedReps = state.activeReps;
+    if (year === 2027) projectedReps = Math.round(QUANTUM.avgReps[2027] * (state.activeReps / QUANTUM.avgReps[2026]));
+    if (year === 2028) projectedReps = Math.round(QUANTUM.avgReps[2028] * (state.activeReps / QUANTUM.avgReps[2026]));
+    let fr = 0;
+    QUANTUM.milestones.filter(x => x.period.includes(year)).forEach(m => {
+      const months = m.period.startsWith('H1') ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+      const fd = months.reduce((s,mo) => s + projectedReps * state.dealsPerRep * (state.seasonality[mo]/100), 0);
+      fr += fd * (state.pullThrough/100) * (Number(state.revenuePerInstall) || 35000);
+    });
+    const tgt = QUANTUM.annualTargets[year];
+    const pct = (fr/tgt)*100;
+    const gap = fr - tgt;
+    annualCards.innerHTML += '<div class="kpi"><div class="kpi-label">' + year + '</div><div class="kpi-value">' + formatCurrency(fr) + '</div><div class="kpi-sub">Target: ' + formatCurrency(tgt) + ' · ' + (gap >= 0 ? '<span class="pill green">+' + formatCurrency(gap) + '</span>' : '<span class="pill yellow">' + formatCurrency(gap) + '</span>') + '</div><div class="progress mt-2"><div class="progress-bar ' + (pct >= 100 ? 'over' : 'behind') + '" style="width:' + Math.min(100, pct) + '%"></div></div></div>';
+  });
+}
+function renderCharts() {
+  if (typeof Chart === 'undefined') return;
+  if (charts.monthly) charts.monthly.destroy();
+  const mCtx = document.getElementById('monthly-chart');
+  if (mCtx) {
+    const reps = Number(state.activeReps) || 0;
+    const monthlyDeals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => reps * state.dealsPerRep * (state.seasonality[m]/100));
+    const monthlyInstalls = monthlyDeals.map(d => d * (state.pullThrough/100));
+    const monthlyRev = monthlyInstalls.map(i => i * (Number(state.revenuePerInstall) || 35000));
+    charts.monthly = new Chart(mCtx, {
+      type: 'bar',
+      data: { labels: MONTH_NAMES, datasets: [
+        { label: 'Deals', data: monthlyDeals, backgroundColor: '#0ea5e9', borderRadius: 4, yAxisID: 'y1' },
+        { label: 'Installs', data: monthlyInstalls, backgroundColor: '#10b981', borderRadius: 4, yAxisID: 'y1' },
+        { label: 'Revenue', data: monthlyRev, type: 'line', borderColor: '#0f172a', backgroundColor: 'rgba(15,23,42,0.08)', yAxisID: 'y2', tension: 0.3, fill: true, pointRadius: 3 },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } }, tooltip: { callbacks: { label: c => c.dataset.label + ': ' + (c.dataset.label === 'Revenue' ? formatCurrency(c.raw) : formatNumber(c.raw)) } } }, scales: { y1: { type: 'linear', position: 'left', ticks: { callback: v => formatNumber(v) }, grid: { color: '#f1f5f9' } }, y2: { type: 'linear', position: 'right', ticks: { callback: v => formatCurrency(v) }, grid: { display: false } }, x: { grid: { display: false } } } }
+    });
+  }
+  if (charts.traj) charts.traj.destroy();
+  const tCtx = document.getElementById('trajectory-chart');
+  if (tCtx) {
+    const years = [2026, 2027, 2028];
+    const targets = years.map(y => QUANTUM.annualTargets[y]);
+    const forecasts = years.map(y => {
+      let projectedReps = state.activeReps;
+      if (y === 2027) projectedReps = Math.round(QUANTUM.avgReps[2027] * (state.activeReps / QUANTUM.avgReps[2026]));
+      if (y === 2028) projectedReps = Math.round(QUANTUM.avgReps[2028] * (state.activeReps / QUANTUM.avgReps[2026]));
+      let r = 0;
+      QUANTUM.milestones.filter(x => x.period.includes(y)).forEach(m => {
+        const months = m.period.startsWith('H1') ? [1,2,3,4,5,6] : [7,8,9,10,11,12];
+        const fd = months.reduce((s,mo) => s + projectedReps * state.dealsPerRep * (state.seasonality[mo]/100), 0);
+        r += fd * (state.pullThrough/100) * (Number(state.revenuePerInstall) || 35000);
+      });
+      return r;
+    });
+    charts.traj = new Chart(tCtx, {
+      type: 'line',
+      data: { labels: years, datasets: [
+        { label: 'Quantum target', data: targets, borderColor: '#64748b', borderDash: [6,4], pointRadius: 4, fill: false, tension: 0 },
+        { label: 'Your forecast', data: forecasts, borderColor: '#0ea5e9', backgroundColor: 'rgba(14,165,233,0.1)', pointRadius: 4, fill: true, tension: 0.2 },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: c => c.dataset.label + ': ' + formatCurrency(c.raw) } } }, scales: { y: { ticks: { callback: v => formatCurrency(v) }, grid: { color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+    });
+  }
+}
+function renderSettings() {
+  const sg = document.getElementById('seasonality-grid');
+  sg.innerHTML = '';
+  MONTH_NAMES.forEach((name, i) => {
+    const m = i + 1;
+    sg.innerHTML += '<div><label>' + name + '</label><input type="number" data-month="' + m + '" value="' + state.seasonality[m] + '" min="0"/></div>';
+  });
+  sg.querySelectorAll('input').forEach(inp => { inp.oninput = (e) => { state.seasonality[parseInt(e.target.dataset.month)] = Number(e.target.value) || 0; saveState(); rerender(); }; });
+  const wt = document.getElementById('weights-tbody');
+  wt.innerHTML = '';
+  ['CA','AZ','TX'].forEach(stateKey => {
+    BRANCHES.filter(b => b.state === stateKey).forEach((b, idx) => {
+      wt.innerHTML += '<tr><td>' + (idx === 0 ? STATE_NAMES[stateKey] + ' (' + stateKey + ')' : '') + '</td><td>' + b.name + '</td><td class="num"><input type="number" data-branch="' + b.id + '" value="' + state.weights[b.id] + '" min="0" max="100" step="0.1"/></td></tr>';
+    });
+  });
+  wt.querySelectorAll('input').forEach(inp => { inp.oninput = (e) => { state.weights[e.target.dataset.branch] = Number(e.target.value) || 0; markWeightsUpdated(); saveState(); renderWeightsTotal(); renderSnapshotStatus('snapshot-status-settings'); rerender(); }; });
+  renderWeightsTotal();
+  renderSnapshotStatus('snapshot-status-settings');
+  document.getElementById('in-rev-per-install').value = state.revenuePerInstall;
+  document.getElementById('in-rev-per-install').oninput = (e) => { state.revenuePerInstall = Number(e.target.value) || 35000; saveState(); rerender(); };
+}
+function renderWeightsTotal() {
+  const total = Object.values(state.weights).reduce((s,w) => s + (w||0), 0);
+  document.getElementById('weights-total').innerHTML = total.toFixed(1) + '% ' + (Math.abs(total-100) < 0.05 ? '<span class="pill green">OK</span>' : '<span class="pill yellow">off ' + (total > 100 ? '+' : '') + (total-100).toFixed(1) + '</span>');
+}
+function resetSeasonality() { state.seasonality = { ...DEFAULT_SEASONALITY }; saveState(); renderSettings(); rerender(); }
+function resetWeights() { state.weights = { ...DEFAULT_WEIGHTS }; markWeightsUpdated(); saveState(); renderSettings(); rerender(); }
+function normalizeWeights() {
+  const total = Object.values(state.weights).reduce((s,w) => s + (w||0), 0);
+  if (total === 0) return resetWeights();
+  Object.keys(state.weights).forEach(k => { state.weights[k] = +((state.weights[k]/total)*100).toFixed(2); });
+  markWeightsUpdated();
+  saveState(); renderSettings(); rerender();
+}
+function resetAll() {
+  if (!confirm('Reset all inputs, seasonality, and branch weights to defaults? Snapshots will be kept.')) return;
+  const keepSnapshots = state.snapshots || [];
+  state = defaultState();
+  state.snapshots = keepSnapshots;
+  localStorage.removeItem(STATE_KEY);
+  saveState();
+  initInputs(); renderSettings(); renderUploadedData(); renderSnapshots(); rerender();
+}
+function renderUploadedData() {
+  const card = document.getElementById('data-summary-card');
+  const d = state.uploadedData;
+  if (!d) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  document.getElementById('data-file-info').textContent = d.fileName + ' · ' + formatNumber(d.rowCount) + ' rows' + (d.dateRange ? ' · ' + d.dateRange : '');
+  // FIX: seasonality-aware dpr
+  const inferredDpr = inferredDealsPerRep(d);
+  const eff = (d.dateMin && d.dateMax) ? effectiveMonthsSeasonal(d.dateMin, d.dateMax) : null;
+  const dprSubLabel = (eff != null && eff > 0)
+    ? formatNumber(d.deals/d.repCount/eff) + ' deals/rep/mo · ' + eff.toFixed(2) + ' effective months'
+    : (d.monthsSpanned ? formatNumber(d.deals/d.repCount/d.monthsSpanned) + ' deals/rep/mo (calendar)' : '');
+  document.getElementById('data-kpis').innerHTML =
+    '<div class="kpi"><div class="kpi-label">Deals</div><div class="kpi-value">' + formatNumber(d.deals) + '</div><div class="kpi-sub">' + (d.repCount ? formatNumber(d.deals/d.repCount) + ' per rep total' : '') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Installs</div><div class="kpi-value">' + (d.installs != null ? formatNumber(d.installs) : '—') + '</div><div class="kpi-sub">' + (d.installs != null && d.deals ? formatPct((d.installs/d.deals)*100) + ' of deals' : 'No install column detected') + '</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Pull-through</div><div class="kpi-value">' + (d.pullThrough != null ? formatPct(d.pullThrough) : '—') + '</div><div class="kpi-sub">Historical baseline: 50%</div></div>' +
+    '<div class="kpi"><div class="kpi-label">Active reps</div><div class="kpi-value">' + formatNumber(d.repCount) + '</div><div class="kpi-sub">' + (inferredDpr != null ? inferredDpr.toFixed(2) + ' deals/rep/mo' : '') + '</div></div>';
+  const bd = document.getElementById('data-breakdown');
+  if (d.branchCounts && Object.keys(d.branchCounts).length > 0) {
+    const rows = Object.entries(d.branchCounts).sort((a,b) => b[1] - a[1]);
+    const total = rows.reduce((s,[,n]) => s + n, 0);
+    bd.innerHTML = '<div class="section-label">Branch distribution (detected)</div><table><thead><tr><th>Branch (raw)</th><th class="num">Rows</th><th class="num">Share</th><th>Mapped to</th></tr></thead><tbody>' + rows.map(([name,n]) => { const mapped = mapBranchName(name); return '<tr><td>' + escapeHtml(name) + '</td><td class="num">' + formatNumber(n) + '</td><td class="num">' + formatPct((n/total)*100) + '</td><td>' + (mapped ? '<span class="pill blue">'+mapped.name+'</span>' : '<span class="pill yellow">unmapped</span>') + '</td></tr>'; }).join('') + '</tbody></table>';
+  } else { bd.innerHTML = '<div class="text-xs text-muted">No branch column detected in this file.</div>'; }
+  const applyEl = document.getElementById('data-apply');
+  const actions = [];
+  if (d.pullThrough != null) actions.push('<button class="btn primary" onclick="applyFromData(\'pullThrough\')">Apply pull-through: ' + formatPct(d.pullThrough) + '</button>');
+  if (inferredDpr != null) actions.push('<button class="btn primary" onclick="applyFromData(\'dealsPerRep\')">Apply deals/rep/mo: ' + inferredDpr.toFixed(2) + '</button>');
+  if (d.repCount) actions.push('<button class="btn primary" onclick="applyFromData(\'reps\')">Apply active reps: ' + formatNumber(d.repCount) + '</button>');
+  if (d.branchCounts && Object.keys(d.branchCounts).some(k => mapBranchName(k))) actions.push('<button class="btn primary" onclick="applyFromData(\'weights\')">Apply branch weights from distribution</button>');
+  if (actions.length === 0) applyEl.innerHTML = '<div class="text-xs text-muted">No actions available — check that columns are recognized.</div>';
+  else applyEl.innerHTML = '<div class="section-label">Apply to forecast</div>' + (eff != null ? '<div class="text-xs text-muted" style="margin-bottom: 8px;">Date span: ' + d.dateRange + ' → ' + eff.toFixed(2) + ' effective months (seasonality-weighted)</div>' : '') + '<div class="flex-center" style="flex-wrap:wrap;">' + actions.join('') + ' <button class="btn secondary" onclick="applyFromData(\'all\')">Apply all</button></div>';
+}
+function clearUploadedData() { state.uploadedData = null; saveState(); renderUploadedData(); }
+
+async function fetchActualsFromSite() {
+  const btn = document.getElementById('fetch-actuals-btn');
+  const status = document.getElementById('fetch-actuals-status');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Fetching…';
+  try {
+    const res = await fetch('/api/forecast/actuals', { credentials: 'same-origin' });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || ('HTTP ' + res.status));
+    }
+    const data = await res.json();
+    state.uploadedData = data;
+    saveState();
+    renderUploadedData();
+    if (status) status.textContent = 'Loaded · ' + (data.dateRange || '');
+  } catch (e) {
+    if (status) status.textContent = 'Failed: ' + (e && e.message ? e.message : e);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+function applyFromData(kind) {
+  const d = state.uploadedData; if (!d) return;
+  if ((kind==='pullThrough'||kind==='all') && d.pullThrough!=null) state.pullThrough = +d.pullThrough.toFixed(1);
+  if ((kind==='dealsPerRep'||kind==='all')) {
+    const dpr = inferredDealsPerRep(d);
+    if (dpr != null && isFinite(dpr) && dpr > 0) state.dealsPerRep = +dpr.toFixed(2);
+  }
+  if ((kind==='reps'||kind==='all') && d.repCount) state.activeReps = d.repCount;
+  if ((kind==='weights'||kind==='all') && d.branchCounts) {
+    const mapped = {}; let total = 0;
+    Object.entries(d.branchCounts).forEach(([name,n]) => { const m = mapBranchName(name); if (m) { mapped[m.id] = (mapped[m.id]||0) + n; total += n; } });
+    if (total > 0) {
+      BRANCHES.forEach(b => { state.weights[b.id] = +(((mapped[b.id]||0)/total)*100).toFixed(2); });
+      markWeightsUpdated();
+    }
+  }
+  saveState(); initInputs(); renderSettings(); rerender(); showTab('forecast');
+}
+function mapBranchName(raw) {
+  if (!raw) return null;
+  const s = String(raw).toLowerCase().trim();
+  const matches = [
+    { ids: ['stockton'], b: BRANCHES[0] },
+    { ids: ['fresno'], b: BRANCHES[1] },
+    { ids: ['valencia','santa clarita','scv'], b: BRANCHES[2] },
+    { ids: ['riverside','ie','inland empire'], b: BRANCHES[3] },
+    { ids: ['phoenix','phx','arizona','az '], b: BRANCHES[4] },
+    { ids: ['houston','htx','texas','tx '], b: BRANCHES[5] },
+  ];
+  for (const m of matches) if (m.ids.some(id => s.includes(id))) return m.b;
+  return null;
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+async function handleFile(file) {
+  if (!file) return;
+  const ext = file.name.toLowerCase().split('.').pop();
+  let rows;
+  try {
+    if (ext === 'csv') { rows = parseCSV(await file.text()); }
+    else if (ext === 'xlsx' || ext === 'xls') { rows = await parseXLSX(await file.arrayBuffer()); }
+    else { alert('Unsupported file type. Please upload a .csv, .xlsx, or .xls file.'); return; }
+    if (!rows || rows.length < 2) { alert('File appears empty or has no data rows.'); return; }
+    state.uploadedData = summarizeRows(rows, file.name);
+    saveState(); renderUploadedData();
+  } catch (e) { console.error(e); alert('Failed to parse file: ' + e.message); }
+}
+function parseCSV(text) {
+  const rows = []; let row = [], cell = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], next = text[i+1];
+    if (inQuotes) {
+      if (c === '"' && next === '"') { cell += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else cell += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (c === '\r') {}
+      else cell += c;
+    }
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c !== '' && c != null));
+}
+async function parseXLSX(buffer) {
+  const entries = await parseZip(buffer);
+  let sharedStrings = [];
+  if (entries['xl/sharedStrings.xml']) {
+    const doc = new DOMParser().parseFromString(new TextDecoder().decode(entries['xl/sharedStrings.xml']), 'text/xml');
+    doc.querySelectorAll('si').forEach(si => { sharedStrings.push(Array.from(si.querySelectorAll('t')).map(t => t.textContent).join('')); });
+  }
+  let sheetPath = null;
+  for (const key of Object.keys(entries)) { if (/^xl\/worksheets\/sheet\d+\.xml$/i.test(key)) { sheetPath = key; break; } }
+  if (!sheetPath) throw new Error('No worksheet found in XLSX');
+  const sheetDoc = new DOMParser().parseFromString(new TextDecoder().decode(entries[sheetPath]), 'text/xml');
+  const rows = [];
+  sheetDoc.querySelectorAll('row').forEach(row => {
+    const rowData = []; let maxCol = 0; const cellMap = {};
+    row.querySelectorAll('c').forEach(cell => {
+      const ref = cell.getAttribute('r');
+      const colIdx = ref ? colRefToIndex(ref.replace(/\d+/g, '')) : rowData.length;
+      maxCol = Math.max(maxCol, colIdx);
+      const type = cell.getAttribute('t');
+      const vEl = cell.querySelector('v');
+      const isEl = cell.querySelector('is');
+      let val;
+      if (type === 's' && vEl) val = sharedStrings[parseInt(vEl.textContent)] || '';
+      else if (type === 'inlineStr' && isEl) val = Array.from(isEl.querySelectorAll('t')).map(t => t.textContent).join('');
+      else if (type === 'b' && vEl) val = vEl.textContent === '1';
+      else if (vEl) { const n = Number(vEl.textContent); val = isNaN(n) ? vEl.textContent : n; }
+      else val = '';
+      cellMap[colIdx] = val;
+    });
+    for (let i = 0; i <= maxCol; i++) rowData.push(cellMap[i] != null ? cellMap[i] : '');
+    rows.push(rowData);
+  });
+  return rows;
+}
+function colRefToIndex(letters) { let n = 0; for (let i = 0; i < letters.length; i++) n = n*26 + (letters.charCodeAt(i) - 64); return n - 1; }
+async function parseZip(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  const entries = {};
+  let i = 0;
+  while (i < view.byteLength - 4) {
+    const sig = view.getUint32(i, true);
+    if (sig === 0x04034b50) {
+      const compressionMethod = view.getUint16(i+8, true);
+      const compressedSize = view.getUint32(i+18, true);
+      const fileNameLength = view.getUint16(i+26, true);
+      const extraFieldLength = view.getUint16(i+28, true);
+      const flags = view.getUint16(i+6, true);
+      const nameStart = i + 30;
+      const name = new TextDecoder().decode(bytes.slice(nameStart, nameStart + fileNameLength));
+      const dataStart = nameStart + fileNameLength + extraFieldLength;
+      let dataEnd = dataStart + compressedSize;
+      if (compressedSize === 0 && (flags & 0x08)) {
+        for (let j = dataStart; j < view.byteLength - 4; j++) { if (view.getUint32(j, true) === 0x08074b50) { dataEnd = j; break; } }
+      }
+      const compressedData = bytes.slice(dataStart, dataEnd);
+      let data;
+      if (compressionMethod === 0) data = compressedData;
+      else if (compressionMethod === 8) data = await inflate(compressedData);
+      else throw new Error('Unsupported compression method: ' + compressionMethod);
+      entries[name] = data;
+      if (compressedSize === 0 && (flags & 0x08)) {
+        i = dataEnd;
+        if (view.getUint32(i, true) === 0x08074b50) i += 16; else i += 12;
+      } else { i = dataEnd; }
+    } else if (sig === 0x02014b50 || sig === 0x06054b50) { break; }
+    else { i++; }
+  }
+  return entries;
+}
+async function inflate(compressedBytes) {
+  const stream = new Blob([compressedBytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+function summarizeRows(rows, fileName) {
+  const headerRow = rows[0].map(h => String(h||'').toLowerCase().trim());
+  const dataRows = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
+  const colIdx = (...aliases) => { for (const a of aliases) { const idx = headerRow.findIndex(h => h === a || h.includes(a)); if (idx >= 0) return idx; } return -1; };
+  const repCol = colIdx('sales rep','rep name','rep','salesperson','sales person','owner','setter');
+  const branchCol = colIdx('branch','office','location','market','region');
+  const saleDateCol = colIdx('conversion at','sale date','deal date','contract date','signed date','sold date','date sold','created date');
+  const installDateCol = colIdx('install completed date','install date','installed date','installation date','pto date','completed date');
+  const statusCol = colIdx('status','stage','deal stage','pipeline');
+  const summary = { fileName, rowCount: dataRows.length, deals: dataRows.length, installs: null, pullThrough: null, repCount: null, repList: [], branchCounts: {}, dateRange: null, monthsSpanned: null, dateMin: null, dateMax: null };
+  if (repCol >= 0) {
+    const reps = new Set();
+    dataRows.forEach(r => { const v = r[repCol]; if (v && String(v).trim()) reps.add(String(v).trim()); });
+    summary.repList = Array.from(reps).sort(); summary.repCount = reps.size;
+  }
+  if (branchCol >= 0) {
+    dataRows.forEach(r => { const v = r[branchCol]; if (v && String(v).trim()) { const k = String(v).trim(); summary.branchCounts[k] = (summary.branchCounts[k]||0) + 1; } });
+  }
+  if (installDateCol >= 0) {
+    let n = 0;
+    dataRows.forEach(r => { const v = r[installDateCol]; if (v != null && String(v).trim() !== '') n++; });
+    summary.installs = n;
+  } else if (statusCol >= 0) {
+    let n = 0;
+    dataRows.forEach(r => { const v = String(r[statusCol]||'').toLowerCase(); if (v.includes('install')||v.includes('complete')||v.includes('pto')||v.includes('activ')) n++; });
+    summary.installs = n;
+  }
+  if (summary.installs != null && summary.deals > 0) summary.pullThrough = (summary.installs/summary.deals)*100;
+  if (saleDateCol >= 0) {
+    const dates = [];
+    dataRows.forEach(r => { const d = parseDateLike(r[saleDateCol]); if (d) dates.push(d); });
+    if (dates.length > 0) {
+      dates.sort((a,b) => a - b);
+      const min = dates[0], max = dates[dates.length-1];
+      summary.dateMin = min.toISOString().slice(0,10);
+      summary.dateMax = max.toISOString().slice(0,10);
+      summary.dateRange = summary.dateMin + ' → ' + summary.dateMax;
+      const monthDiff = (max.getFullYear()-min.getFullYear())*12 + (max.getMonth()-min.getMonth()) + 1;
+      summary.monthsSpanned = Math.max(1, monthDiff);
+    }
+  }
+  return summary;
+}
+function parseDateLike(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number' && v > 20000 && v < 80000) {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(epoch.getTime() + v * 86400000);
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d)) return d;
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) { let yr = parseInt(m[3]); if (yr < 100) yr += 2000; return new Date(yr, parseInt(m[1])-1, parseInt(m[2])); }
+  return null;
+}
+function showTab(name) {
+  document.querySelectorAll('.tabs#tabs .tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'panel-' + name));
+  rerender();
+}
+function initInputs() {
+  document.getElementById('in-quarter').value = state.quarter;
+  document.getElementById('in-year').value = state.year;
+  document.getElementById('in-reps').value = state.activeReps;
+  document.getElementById('in-deals-per-rep').value = state.dealsPerRep;
+  document.getElementById('in-pull-through').value = state.pullThrough;
+}
+function bindInputs() {
+  document.querySelectorAll('.tabs#tabs .tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
+  document.getElementById('in-quarter').onchange = e => { state.quarter = e.target.value; saveState(); rerender(); };
+  document.getElementById('in-year').onchange = e => { state.year = parseInt(e.target.value); saveState(); rerender(); };
+  document.getElementById('in-reps').oninput = e => { state.activeReps = parseInt(e.target.value) || 0; saveState(); rerender(); };
+  document.getElementById('in-deals-per-rep').oninput = e => { state.dealsPerRep = Number(e.target.value) || 0; saveState(); rerender(); };
+  document.getElementById('in-pull-through').oninput = e => { state.pullThrough = Number(e.target.value) || 0; saveState(); rerender(); };
+  document.querySelectorAll('#metric-toggle .tab').forEach(t => t.onclick = () => { state.branchMetric = t.dataset.metric; saveState(); renderBranchMonthly(); });
+  // File-upload UI removed — actuals now come from /api/forecast/actuals
+  // (which reads the site's central /upload data). The legacy `handleFile`
+  // and `summarizeRows` helpers stay defined below so older saved scenarios
+  // can still be loaded, but no element wires to them anymore.
+  const importInput = document.getElementById('import-snapshot-input');
+  if (importInput) importInput.onchange = (e) => handleSnapshotImport(e.target.files[0]);
+  const nameInput = document.getElementById('snapshot-name-input');
+  if (nameInput) {
+    nameInput.onkeydown = (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); confirmSaveSnapshot(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelSaveSnapshot(); }
+    };
+  }
+}
+function rerender() {
+  const predictions = computePredictions();
+  const quantum = computeQuantumAnalysis(predictions);
+  renderForecast(predictions, quantum);
+  renderBranches(predictions);
+  renderTargets();
+  renderCharts();
+}
+initInputs();
+bindInputs();
+renderSettings();
+renderUploadedData();
+renderSnapshots();
+rerender();
+// Pull team-shared snapshots from Supabase on first paint. Replaces the
+// localStorage-only list so every device sees the same scenarios.
+loadSnapshotsFromServer();
+</script>
+</body>
+</html>
