@@ -106,12 +106,18 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     const out: DailyRep[] = [];
     let from = 0;
     for (let i = 0; i < 100; i++) {
+      // Order by the FULL composite PK so pagination is stable across
+      // ties — `activity_date` alone has ties (many reps share a date)
+      // and Postgres doesn't promise a consistent in-tie ordering across
+      // separate Range requests, which would silently dupe or skip rows.
       const { data, error } = await supabase
         .from('daily_rep_activity')
         .select('rep_name, activity_date, dealer_org, kind')
         .gte('activity_date', fetchStartIso)
         .lte('activity_date', cumulativeEndIso)
         .order('activity_date', { ascending: false })
+        .order('rep_name', { ascending: true })
+        .order('kind', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
       out.push(...(data as DailyRep[]));
@@ -124,12 +130,16 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     const out: MetricRow[] = [];
     let from = 0;
     for (let i = 0; i < 100; i++) {
+      // Same reasoning — `period_start` has heavy ties (multiple
+      // channels × branches per week). `id` is the PK so it makes the
+      // sort total.
       const { data, error } = await supabase
         .from('metrics')
         .select('*')
         .gte('period_end', fetchStartIso)
         .lte('period_start', cumulativeEndIso)
         .order('period_start', { ascending: false })
+        .order('id', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error || !data || data.length === 0) break;
       out.push(...(data as MetricRow[]));
