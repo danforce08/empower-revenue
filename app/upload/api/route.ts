@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < dailyRows.length; i += CHUNK) {
       const chunk = dailyRows.slice(i, i + CHUNK);
       const { error: drErr } = await supabase.from('daily_rep_activity').upsert(chunk, {
-        onConflict: 'rep_name,activity_date',
+        onConflict: 'rep_name,activity_date,kind',
         ignoreDuplicates: false,
       });
       if (drErr) {

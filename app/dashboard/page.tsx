@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { getSupabaseServer } from '@/lib/supabase/server';
 import {
   isoDate,
+  monthEnd,
   monthStart,
   mostRecentSunday,
   parseIsoDate,
@@ -14,6 +15,9 @@ import { formatCount, formatCurrency } from '@/lib/cell-format';
 import { rollupMetrics, rowsInRange } from '@/lib/rollups';
 import type { Channel, MetricRow } from '@/lib/types';
 import { WeekPicker } from '@/components/week-picker';
+import { ActiveRepsChart } from '@/components/active-reps-chart';
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Per-channel revenue per install fallbacks, sourced from the Quantum 250x28
 // sheet's Average Contract Value column. Used when no active scenario is
@@ -66,6 +70,13 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const mtdStart = monthStart(anchor);
   const qtdStart = quarterStart(anchor);
   const ytdStart = yearStart(anchor);
+  // Last full calendar month, used by the Clean Deal % "Last Month" card
+  // and the Active Reps chart's "Last Month" summary stat.
+  const lastMonthStart = new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+  const lastMonthEnd = monthEnd(lastMonthStart);
+  // Fetch range starts from the earlier of YTD start vs last-month start so
+  // January's "last month" still has rows (it's December of the prior year).
+  const fetchStart = lastMonthStart < ytdStart ? lastMonthStart : ytdStart;
   const weekEndingIso = isoDate(weekEndingDate);
   const thisWeekStartIso = isoDate(thisWeekStart);
   const lastWeekStartIso = isoDate(lastWeek.start);
@@ -73,6 +84,9 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const mtdStartIso = isoDate(mtdStart);
   const qtdStartIso = isoDate(qtdStart);
   const ytdStartIso = isoDate(ytdStart);
+  const lastMonthStartIso = isoDate(lastMonthStart);
+  const lastMonthEndIso = isoDate(lastMonthEnd);
+  const fetchStartIso = isoDate(fetchStart);
   const cumulativeEndIso = isoDate(anchor);
 
   const supabase = await getSupabaseServer();
@@ -81,7 +95,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     supabase
       .from('metrics')
       .select('*')
-      .gte('period_end', isoDate(ytdStart))
+      .gte('period_end', fetchStartIso)
       .lte('period_start', cumulativeEndIso),
     supabase
       .from('weekly_recruitment')
@@ -89,8 +103,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       .order('period_start'),
     supabase
       .from('daily_rep_activity')
-      .select('rep_name, activity_date')
-      .gte('activity_date', ytdStartIso)
+      .select('rep_name, activity_date, dealer_org, kind')
+      .gte('activity_date', fetchStartIso)
       .lte('activity_date', cumulativeEndIso)
       // Override Supabase's default 1000-row cap. YTD activity grows past
       // that easily; without this, late-alphabetical reps (and recent dates)
@@ -117,6 +131,8 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const dailyReps = (dailyRepsRes.data ?? []) as Array<{
     rep_name: string;
     activity_date: string;
+    dealer_org: string | null;
+    kind: 'sale' | 'install';
   }>;
 
   // Resolve revenue assumptions from the active forecast scenario; fall back
@@ -149,28 +165,28 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     ? metrics.filter((m) => m.channel_id === totalSalesChannel.id)
     : [];
 
-  function activeReps(start: string, end: string): number {
-    // Boundary-accurate: count distinct reps whose activity_date falls in
-    // [start, end] using the daily_rep_activity table. No more weekly
-    // bucket spillover — a rep active only Apr 27-30 won't count toward
-    // MTD May 1-6.
-    const seen = new Set<string>();
-    for (const r of dailyReps) {
-      if (r.activity_date >= start && r.activity_date <= end) {
-        seen.add(r.rep_name);
-      }
-    }
-    return seen.size;
-  }
-
-  // Active rep counts (distinct from any bucket overlapping the window).
-  // Deals come from the same production() totals the Production cards use,
-  // so the two sections agree. "deals/rep" is computed against the
-  // cross-channel deal total Dan thinks of, not just solar.
-  const mtdActiveReps = activeReps(mtdStartIso, cumulativeEndIso);
-  const qtdActiveReps = activeReps(qtdStartIso, cumulativeEndIso);
-  const ytdActiveReps = activeReps(ytdStartIso, cumulativeEndIso);
-  const dealsPerRep = (reps: number, deals: number) => (reps > 0 ? deals / reps : 0);
+  // The dashboard now renders Active Reps as two stacked bar charts (by
+  // sale + by install) instead of three numeric KPI cards, but the
+  // "by sale" totals carried by the chart's summary trio replace the
+  // info the cards used to show.
+  const repsBySale = monthlyActiveRepsByOrg(
+    dailyReps.filter((r) => r.kind === 'sale'),
+    anchor,
+    lastMonthStartIso,
+    lastMonthEndIso,
+    mtdStartIso,
+    ytdStartIso,
+    cumulativeEndIso,
+  );
+  const repsByInstall = monthlyActiveRepsByOrg(
+    dailyReps.filter((r) => r.kind === 'install'),
+    anchor,
+    lastMonthStartIso,
+    lastMonthEndIso,
+    mtdStartIso,
+    ytdStartIso,
+    cumulativeEndIso,
+  );
 
   // By-dealer-org leaderboard. The parser emits per-org deal counts on the
   // total_sales bucket as `org__<org>` numeric metrics, summed naturally by
@@ -346,6 +362,120 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const prodQTD = production(qtdStartIso, cumulativeEndIso);
   const prodYTD = production(ytdStartIso, cumulativeEndIso);
 
+  // Clean Deal % — total deals created vs. deals marked clean. Participate
+  // Energy never backfills the Clean Deal Completed Date column, so the
+  // parser counts a Participate row as clean even when that field is empty
+  // (the override is captured separately as `clean_deal_participate_override`
+  // so the card can footnote how much of the count came from it).
+  function cleanDealRatio(start: string, end: string) {
+    if (!totalSalesChannel) {
+      return { created: 0, clean: 0, override: 0, pct: null as number | null };
+    }
+    const m = proratedNumeric(
+      rowsInRange(tsRows, start, end),
+      totalSalesChannel,
+      start, end,
+      ['accounts_created', 'clean_deal_completed', 'clean_deal_participate_override'],
+    );
+    const created = Math.round(m.accounts_created ?? 0);
+    const clean = Math.round(m.clean_deal_completed ?? 0);
+    const override = Math.round(m.clean_deal_participate_override ?? 0);
+    return { created, clean, override, pct: created > 0 ? clean / created : null };
+  }
+  const cleanDealLastMonth = cleanDealRatio(lastMonthStartIso, lastMonthEndIso);
+  const cleanDealThisMonth = cleanDealRatio(mtdStartIso, cumulativeEndIso);
+  const cleanDealYTD       = cleanDealRatio(ytdStartIso, cumulativeEndIso);
+
+  // Roll up daily_rep_activity into per-month, per-org distinct rep
+  // counts. Returns recharts-ready data (one row per month with one
+  // numeric field per org) plus the orgs to render as stacked Bars and
+  // a summary trio for the chart's header.
+  function monthlyActiveRepsByOrg(
+    rows: Array<{ rep_name: string; activity_date: string; dealer_org: string | null }>,
+    chartAnchor: Date,
+    lastMonthStartArg: string,
+    lastMonthEndArg: string,
+    thisMonthStartArg: string,
+    ytdStartArg: string,
+    cumulativeEndArg: string,
+  ): {
+    data: Array<Record<string, string | number>>;
+    orgs: string[];
+    summary: { lastMonth: number; thisMonth: number; ytd: number };
+  } {
+    // YTD subset for the bars
+    const ytdRows = rows.filter(
+      (r) => r.activity_date >= ytdStartArg && r.activity_date <= cumulativeEndArg,
+    );
+    // (month 'YYYY-MM') -> (org -> Set<rep>)
+    const byMonthOrg = new Map<string, Map<string, Set<string>>>();
+    for (const r of ytdRows) {
+      const monthKey = r.activity_date.slice(0, 7);
+      const display = r.dealer_org ? displayOrgLabel(r.dealer_org) : null;
+      const org = display ?? 'Unassigned';
+      let m = byMonthOrg.get(monthKey);
+      if (!m) { m = new Map(); byMonthOrg.set(monthKey, m); }
+      let s = m.get(org);
+      if (!s) { s = new Set<string>(); m.set(org, s); }
+      s.add(r.rep_name);
+    }
+    // Top-12 orgs by total contribution; everything else collapses into 'Other'
+    const orgTotals = new Map<string, number>();
+    for (const monthMap of byMonthOrg.values()) {
+      for (const [org, repSet] of monthMap) {
+        orgTotals.set(org, (orgTotals.get(org) ?? 0) + repSet.size);
+      }
+    }
+    const sorted = Array.from(orgTotals.entries()).sort((a, b) => b[1] - a[1]);
+    const top12 = sorted.slice(0, 12).map(([k]) => k);
+    const otherSet = new Set(sorted.slice(12).map(([k]) => k));
+    const orgs = otherSet.size > 0 ? [...top12, 'Other'] : top12;
+
+    // Build chart data: months Jan..currentMonth (anchored to the year)
+    const startYear = chartAnchor.getFullYear();
+    const endMonth = chartAnchor.getMonth();
+    const data: Array<Record<string, string | number>> = [];
+    for (let mi = 0; mi <= endMonth; mi++) {
+      const dt = new Date(startYear, mi, 1);
+      const monthKey = isoDate(dt).slice(0, 7);
+      const row: Record<string, string | number> = { month: MONTH_LABELS[mi] };
+      const monthMap = byMonthOrg.get(monthKey);
+      if (monthMap) {
+        for (const org of top12) row[org] = monthMap.get(org)?.size ?? 0;
+        if (otherSet.size > 0) {
+          let otherCount = 0;
+          for (const [org, s] of monthMap) {
+            if (otherSet.has(org)) otherCount += s.size;
+          }
+          row['Other'] = otherCount;
+        }
+      } else {
+        for (const org of orgs) row[org] = 0;
+      }
+      data.push(row);
+    }
+
+    // Summary stats — distinct reps across the whole window (org-agnostic)
+    function distinctRepsBetween(startIso: string, endIso: string): number {
+      const seen = new Set<string>();
+      for (const r of rows) {
+        if (r.activity_date >= startIso && r.activity_date <= endIso) {
+          seen.add(r.rep_name);
+        }
+      }
+      return seen.size;
+    }
+    return {
+      data,
+      orgs,
+      summary: {
+        lastMonth: distinctRepsBetween(lastMonthStartArg, lastMonthEndArg),
+        thisMonth: distinctRepsBetween(thisMonthStartArg, cumulativeEndArg),
+        ytd:       distinctRepsBetween(ytdStartArg, cumulativeEndArg),
+      },
+    };
+  }
+
   // Quantum revenue gap — multiply each channel's YTD installs by its own
   // per-install revenue rate from the Quantum sheet, then compare against
   // the $115M annual target.
@@ -432,6 +562,32 @@ export default async function DashboardPage({ searchParams }: PageProps) {
 
       <section className="mb-10 anim-fade-rise stagger-2">
         <SectionHeader
+          eyebrow="Clean Deal %"
+          title="Created deals marked clean"
+          subtitle="Clean Deal Completed Date populated, OR Funding Partner = Participate Energy (Participate never backfills the field, so we count their deals as clean by default)"
+        />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <CleanDealCard
+            label="Last Month"
+            range={`${shortDate(lastMonthStartIso)}–${shortDate(lastMonthEndIso)}`}
+            data={cleanDealLastMonth}
+          />
+          <CleanDealCard
+            label="This Month"
+            range={`${shortDate(mtdStartIso)}–${shortDate(cumulativeEndIso)}`}
+            data={cleanDealThisMonth}
+          />
+          <CleanDealCard
+            label="YTD"
+            range={`${shortDate(ytdStartIso)}–${shortDate(cumulativeEndIso)}`}
+            data={cleanDealYTD}
+            hero
+          />
+        </div>
+      </section>
+
+      <section className="mb-10 anim-fade-rise stagger-2">
+        <SectionHeader
           eyebrow="Quantum"
           title="Annual revenue gap"
           subtitle={
@@ -465,13 +621,24 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       <section className="mb-10 anim-fade-rise stagger-3">
         <SectionHeader
           eyebrow="Active reps"
-          title="Reps with at least one deal in the period"
-          subtitle="From Jobflo · excludes Labor Only and IP Takeovers"
+          title="Reps with at least one sale or install per month"
+          subtitle="Distinct reps per month · stacked by sales team · excludes Labor Only and IP Takeovers · install chart needs a re-upload after the migration to populate historical install dates"
         />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card label="MTD" reps={mtdActiveReps} deals={prodMTD.deals} dealsPerRep={dealsPerRep(mtdActiveReps, prodMTD.deals)} />
-          <Card label="QTD" reps={qtdActiveReps} deals={prodQTD.deals} dealsPerRep={dealsPerRep(qtdActiveReps, prodQTD.deals)} />
-          <Card label="YTD" reps={ytdActiveReps} deals={prodYTD.deals} dealsPerRep={dealsPerRep(ytdActiveReps, prodYTD.deals)} hero />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <ActiveRepsChart
+            title="By sale"
+            subtitle="Reps with ≥1 qualifying sale that month"
+            data={repsBySale.data}
+            orgs={repsBySale.orgs}
+            summary={repsBySale.summary}
+          />
+          <ActiveRepsChart
+            title="By install"
+            subtitle="Reps with ≥1 completed install that month"
+            data={repsByInstall.data}
+            orgs={repsByInstall.orgs}
+            summary={repsByInstall.summary}
+          />
         </div>
       </section>
 
@@ -522,39 +689,40 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
   );
 }
 
-function Card({
+function CleanDealCard({
   label,
-  reps,
-  deals,
-  dealsPerRep,
+  range,
+  data,
   hero,
 }: {
   label: string;
-  reps: number;
-  deals: number;
-  dealsPerRep: number;
+  range: string;
+  data: { created: number; clean: number; override: number; pct: number | null };
   hero?: boolean;
 }) {
+  const pctText = data.pct == null ? '—' : `${(data.pct * 100).toFixed(1)}%`;
   return (
     <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
       hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
     }`}>
-      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
         {label}
       </div>
-      <div className="flex items-baseline gap-3 mb-2">
+      <div className="text-[10px] num text-[var(--muted)] mb-2">{range}</div>
+      <div className="flex items-baseline gap-2 mb-1">
         <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-4xl' : 'text-3xl'}`}>
-          {formatCount(reps)}
+          {pctText}
         </span>
-        <span className="text-sm text-[var(--muted)]">active reps</span>
       </div>
       <div className="text-sm text-[var(--foreground)] num">
-        {dealsPerRep > 0 ? dealsPerRep.toFixed(1) : '—'}{' '}
-        <span className="text-[var(--muted)]">deals / rep</span>
+        {formatCount(data.clean)}{' '}
+        <span className="text-[var(--muted)]">of {formatCount(data.created)} deals clean</span>
       </div>
-      <div className="text-xs text-[var(--muted)] num mt-1">
-        {formatCount(deals)} deals total
-      </div>
+      {data.override > 0 && (
+        <div className="text-xs text-[var(--muted)] num mt-1">
+          incl. {formatCount(data.override)} via Participate override
+        </div>
+      )}
     </div>
   );
 }

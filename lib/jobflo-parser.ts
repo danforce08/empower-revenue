@@ -16,6 +16,7 @@ const HEADER_ALIASES = {
   fundingPartner: ['funding partner'],
   soldSystemSize: ['sold system size'],
   battery:    ['battery'],
+  cleanDeal:  ['clean deal completed date', 'clean deal completed', 'clean deal date'],
 } as const;
 
 type AliasKey = keyof typeof HEADER_ALIASES;
@@ -44,6 +45,14 @@ export type ParseResult = {
     activity_date: string;
     dealer_org: string | null;
     branch: string | null;
+    /**
+     * 'sale' = rep had at least one qualifying sale on `activity_date`.
+     * 'install' = rep had at least one completed install on `activity_date`
+     * (the row's Install Completed Date column). Both are written by the
+     * same upload pass; the dashboard filters by `kind` to render the two
+     * Active Reps charts independently.
+     */
+    kind: 'sale' | 'install';
   }>;
   classified: { solar: number; roof: number; battery: number; internal: number; both: number; unclassified: number };
   dateMin: string | null;
@@ -313,6 +322,7 @@ export async function parseJobfloFile(
     fundingPartner: indexFor(header, 'fundingPartner'),
     soldSystemSize: indexFor(header, 'soldSystemSize'),
     battery:        indexFor(header, 'battery'),
+    cleanDeal:      indexFor(header, 'cleanDeal'),
   };
 
   const warnings: string[] = [];
@@ -352,10 +362,15 @@ export async function parseJobfloFile(
     s.add(value);
   };
   const branchesSeen = new Set<string>();
-  // Daily rep activity — one entry per (rep, date). Lets the Dashboard
-  // count distinct reps for any window without weekly-bucket overcount.
-  const dailyRepKey = (rep: string, dateIso: string): string => `${rep}|${dateIso}`;
-  const dailyRepRows = new Map<string, { rep_name: string; activity_date: string; dealer_org: string | null; branch: string | null }>();
+  // Daily rep activity — one entry per (rep, date, kind). Lets the
+  // Dashboard count distinct reps for any window without weekly-bucket
+  // overcount, separately for "active by sale" vs "active by install".
+  const dailyRepKey = (rep: string, dateIso: string, kind: 'sale' | 'install'): string =>
+    `${rep}|${dateIso}|${kind}`;
+  const dailyRepRows = new Map<
+    string,
+    { rep_name: string; activity_date: string; dealer_org: string | null; branch: string | null; kind: 'sale' | 'install' }
+  >();
 
   // Global "first appearance" sets used to derive recruitment markers.
   // Population is order-dependent — rows must be sorted by sale date ASC
@@ -453,6 +468,30 @@ export async function parseJobfloFile(
       continue;
     }
 
+    // Clean Deal % counters — every classified row counts as an account
+    // created. A row is "clean" when its Clean Deal Completed Date is
+    // populated, OR when its Funding Partner is Participate Energy
+    // (Participate never backfills Clean Deal, so without this override
+    // their deals would tank the percentage). Emitted on the `total_sales`
+    // bucket for the sale week so the Dashboard can roll it up the same
+    // way it rolls up other total_sales metrics.
+    const cleanDealDate = cols.cleanDeal >= 0 ? parseDateLike(r[cols.cleanDeal]) : null;
+    const isParticipate = fundingPartner === 'participate energy';
+    const isCleanDeal = !!cleanDealDate || isParticipate;
+    const cdKey = bucketKey('total_sales', wkStartIso, branch);
+    const cdDelta: Record<string, number> = {
+      accounts_created: 1,
+      clean_deal_completed: isCleanDeal ? 1 : 0,
+    };
+    if (isCleanDeal && isParticipate && !cleanDealDate) {
+      cdDelta.clean_deal_participate_override = 1;
+    }
+    addToBucket(buckets, cdKey, {
+      channelKey: 'total_sales',
+      weekStart: wkStartIso, weekEnd: wkEndIso, branch,
+      delta: cdDelta,
+    });
+
     // Active reps + recruitment tracking. Attached to the `total_sales` bucket
     // for the week so it's a single global rollup target. The eligibility
     // filter is broader than the dealer-channel one: any qualifying deal
@@ -489,17 +528,39 @@ export async function parseJobfloFile(
       });
       addToBucketSet(tsKey, 'unique_reps', repNorm);
       // Record per-day rep activity for boundary-accurate distinct-rep
-      // counts on the Dashboard. Keyed by (rep, sale_date) so multi-deal
-      // days collapse to one row.
+      // counts on the Dashboard. Keyed by (rep, date, kind) so multi-deal
+      // days collapse to one row per kind.
       const saleDateIso = isoDate(sale);
-      const drKey = dailyRepKey(repNorm, saleDateIso);
-      if (!dailyRepRows.has(drKey)) {
-        dailyRepRows.set(drKey, {
+      const repOrgLabel = orgNorm && isValidOrgName(orgNorm)
+        ? canonicalOrgLabel(orgNorm)
+        : null;
+      const saleKey = dailyRepKey(repNorm, saleDateIso, 'sale');
+      if (!dailyRepRows.has(saleKey)) {
+        dailyRepRows.set(saleKey, {
           rep_name: repNorm,
           activity_date: saleDateIso,
-          dealer_org: orgNorm && !NON_DEALER_ORGS.has(orgNorm) ? canonicalOrgLabel(orgNorm) : (orgNorm ? canonicalOrgLabel(orgNorm) : null),
+          dealer_org: repOrgLabel,
           branch,
+          kind: 'sale',
         });
+      }
+      // Mirror emission keyed by the install-completed date when present
+      // and not future-dated. Drives the "Active Reps by Install" chart.
+      const repInstallDate = cols.installDate >= 0
+        ? parseDateLike(r[cols.installDate])
+        : null;
+      if (repInstallDate && !isFutureInstall(repInstallDate)) {
+        const installIso = isoDate(repInstallDate);
+        const installKey = dailyRepKey(repNorm, installIso, 'install');
+        if (!dailyRepRows.has(installKey)) {
+          dailyRepRows.set(installKey, {
+            rep_name: repNorm,
+            activity_date: installIso,
+            dealer_org: repOrgLabel,
+            branch,
+            kind: 'install',
+          });
+        }
       }
       if (!seenReps.has(repNorm)) {
         seenReps.add(repNorm);
