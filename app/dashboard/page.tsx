@@ -90,26 +90,63 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const cumulativeEndIso = isoDate(anchor);
 
   const supabase = await getSupabaseServer();
-  const [channelsRes, metricsRes, recruitmentRes, dailyRepsRes, scenarioRes] = await Promise.all([
+
+  // Page through queries that can exceed Supabase's hard `db.max-rows` cap
+  // (silently clips at 1000 rows regardless of how big a `.range()` you ask
+  // for). `.range()` alone is not enough to escape the cap — you have to
+  // actually paginate with explicit ORDER BY + repeated requests.
+  // Discovered May 2026: the dashboard was reading only ~1000 of ~1500
+  // daily_rep_activity rows, sorted by PK (rep_name, activity_date, kind),
+  // which silently clipped late-alphabet reps. The "current month" was
+  // entirely empty because, by chance, those reps' dates happen to land
+  // late in the alphabetical sort order too.
+  const PAGE = 1000;
+  type DailyRep = { rep_name: string; activity_date: string; dealer_org: string | null; kind: 'sale' | 'install' };
+  async function fetchAllDailyReps(): Promise<DailyRep[]> {
+    const out: DailyRep[] = [];
+    let from = 0;
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await supabase
+        .from('daily_rep_activity')
+        .select('rep_name, activity_date, dealer_org, kind')
+        .gte('activity_date', fetchStartIso)
+        .lte('activity_date', cumulativeEndIso)
+        .order('activity_date', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      out.push(...(data as DailyRep[]));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return out;
+  }
+  async function fetchAllMetrics(): Promise<MetricRow[]> {
+    const out: MetricRow[] = [];
+    let from = 0;
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await supabase
+        .from('metrics')
+        .select('*')
+        .gte('period_end', fetchStartIso)
+        .lte('period_start', cumulativeEndIso)
+        .order('period_start', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      out.push(...(data as MetricRow[]));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return out;
+  }
+
+  const [channelsRes, metrics, recruitmentRes, dailyReps, scenarioRes] = await Promise.all([
     supabase.from('channels').select('*').order('sort_order'),
-    supabase
-      .from('metrics')
-      .select('*')
-      .gte('period_end', fetchStartIso)
-      .lte('period_start', cumulativeEndIso),
+    fetchAllMetrics(),
     supabase
       .from('weekly_recruitment')
       .select('period_start, period_end, new_reps, new_dealers')
       .order('period_start'),
-    supabase
-      .from('daily_rep_activity')
-      .select('rep_name, activity_date, dealer_org, kind')
-      .gte('activity_date', fetchStartIso)
-      .lte('activity_date', cumulativeEndIso)
-      // Override Supabase's default 1000-row cap. YTD activity grows past
-      // that easily; without this, late-alphabetical reps (and recent dates)
-      // get silently clipped, which made MTD active reps render 0.
-      .range(0, 99999),
+    fetchAllDailyReps(),
     // Active forecast scenario — drives revenue per install + annual target
     // so Dashboard stays in sync with whatever's configured on the forecast
     // page. Falls back to in-code constants when no scenario is marked.
@@ -121,18 +158,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   ]);
 
   const channels = (channelsRes.data ?? []) as Channel[];
-  const metrics = (metricsRes.data ?? []) as MetricRow[];
   const recruitment = (recruitmentRes.data ?? []) as Array<{
     period_start: string;
     period_end: string;
     new_reps: number;
     new_dealers: number;
-  }>;
-  const dailyReps = (dailyRepsRes.data ?? []) as Array<{
-    rep_name: string;
-    activity_date: string;
-    dealer_org: string | null;
-    kind: 'sale' | 'install';
   }>;
 
   // Resolve revenue assumptions from the active forecast scenario; fall back
