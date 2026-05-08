@@ -19,6 +19,14 @@ import { ActiveRepsChart } from '@/components/active-reps-chart';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Shared chrome for KPI/leaderboard cards. Hero variant uses a thick cyan
+// border, a soft cyan-tinted gradient, and a glow shadow so the YTD
+// (or other "this is the headline number") card actually wins the eye —
+// previously the hero/non-hero diff was a single CSS-variable swap that
+// rendered as ~5% visual difference.
+const CARD_BASE = 'rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] border-[var(--border)]';
+const CARD_HERO = 'rounded-2xl border-2 border-[var(--brand-cyan)] p-5 shadow-[0_0_0_4px_rgba(0,184,243,0.06),0_12px_36px_-12px_rgba(0,184,243,0.32)] bg-gradient-to-br from-[var(--brand-cyan-soft)] to-[var(--surface)]';
+
 // Per-channel revenue per install fallbacks, sourced from the Quantum 250x28
 // sheet's Average Contract Value column. Used when no active scenario is
 // configured in the forecast tool.
@@ -742,15 +750,13 @@ function CleanDealCard({
 }) {
   const pctText = data.pct == null ? '—' : `${(data.pct * 100).toFixed(1)}%`;
   return (
-    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
-      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
-    }`}>
-      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
+    <div className={hero ? CARD_HERO : CARD_BASE}>
+      <div className={`text-xs uppercase tracking-[0.14em] font-semibold mb-1 ${hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'}`}>
         {label}
       </div>
       <div className="text-[10px] num text-[var(--muted)] mb-2">{range}</div>
       <div className="flex items-baseline gap-2 mb-1">
-        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-4xl' : 'text-3xl'}`}>
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-5xl sm:text-6xl' : 'text-3xl'}`}>
           {pctText}
         </span>
       </div>
@@ -778,10 +784,8 @@ function Leaderboard({
 }) {
   const max = rows.reduce((m, r) => Math.max(m, r.deals), 0);
   return (
-    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
-      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
-    }`}>
-      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+    <div className={hero ? CARD_HERO : CARD_BASE}>
+      <div className={`text-xs uppercase tracking-[0.14em] font-semibold mb-3 ${hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'}`}>
         {label}
       </div>
       {rows.length === 0 ? (
@@ -836,22 +840,20 @@ function ProductionCard({
   hero?: boolean;
 }) {
   return (
-    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
-      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
-    }`}>
-      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
+    <div className={hero ? CARD_HERO : CARD_BASE}>
+      <div className={`text-xs uppercase tracking-[0.14em] font-semibold mb-1 ${hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'}`}>
         {label}
       </div>
       {range && (
         <div className="text-[10px] num text-[var(--muted)] mb-2">{range}</div>
       )}
       <div className="flex items-baseline gap-3 mb-1">
-        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-3xl' : 'text-2xl'}`}>
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-5xl' : 'text-2xl'}`}>
           {formatCount(deals)}
         </span>
         <span className="text-xs text-[var(--muted)]">deals</span>
       </div>
-      <div className="text-sm text-[var(--foreground)] num">
+      <div className={`num text-[var(--foreground)] ${hero ? 'text-base' : 'text-sm'}`}>
         {formatCount(installs)}{' '}
         <span className="text-[var(--muted)]">installs</span>
       </div>
@@ -877,10 +879,10 @@ function RevenueStat({
     : 'text-[var(--ink)]';
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-1">
+      <div className={`text-[10px] uppercase tracking-[0.14em] font-semibold mb-1 ${hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'}`}>
         {label}
       </div>
-      <div className={`num font-semibold ${hero ? 'text-2xl' : 'text-lg'} ${valueClass}`}>
+      <div className={`num font-semibold ${hero ? 'text-3xl sm:text-4xl' : 'text-lg'} ${valueClass}`}>
         {value}
       </div>
     </div>
@@ -899,19 +901,17 @@ function RecruitmentCard({
   hero?: boolean;
 }) {
   return (
-    <div className={`rounded-2xl border bg-[var(--surface)] p-5 shadow-[0_1px_2px_rgba(10,24,40,0.04),0_8px_24px_-12px_rgba(10,24,40,0.08)] ${
-      hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
-    }`}>
-      <div className="text-xs uppercase tracking-[0.14em] font-semibold text-[var(--muted)] mb-3">
+    <div className={hero ? CARD_HERO : CARD_BASE}>
+      <div className={`text-xs uppercase tracking-[0.14em] font-semibold mb-3 ${hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'}`}>
         {label}
       </div>
       <div className="flex items-baseline gap-3 mb-2">
-        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-4xl' : 'text-3xl'}`}>
+        <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-5xl sm:text-6xl' : 'text-3xl'}`}>
           {formatCount(reps)}
         </span>
         <span className="text-sm text-[var(--muted)]">new reps</span>
       </div>
-      <div className="text-sm text-[var(--foreground)] num">
+      <div className={`num text-[var(--foreground)] ${hero ? 'text-base' : 'text-sm'}`}>
         {formatCount(dealers)}{' '}
         <span className="text-[var(--muted)]">new dealers</span>
       </div>

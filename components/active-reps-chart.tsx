@@ -130,16 +130,22 @@ function SummaryStat({
 }: { label: string; value: number; hero?: boolean }) {
   return (
     <div
-      className={`rounded-lg border px-3 py-2 ${
-        hero ? 'border-[var(--brand-cyan-soft)]' : 'border-[var(--border)]'
+      className={`rounded-lg px-3 py-2 ${
+        hero
+          ? 'border-2 border-[var(--brand-cyan)] bg-gradient-to-br from-[var(--brand-cyan-soft)] to-[var(--surface)]'
+          : 'border border-[var(--border)]'
       }`}
     >
-      <div className="text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--muted)]">
+      <div
+        className={`text-[10px] uppercase tracking-[0.14em] font-semibold ${
+          hero ? 'text-[var(--brand-cyan)]' : 'text-[var(--muted)]'
+        }`}
+      >
         {label}
       </div>
       <div
         className={`num font-semibold text-[var(--ink)] ${
-          hero ? 'text-2xl' : 'text-xl'
+          hero ? 'text-3xl' : 'text-xl'
         }`}
       >
         {value.toLocaleString()}
