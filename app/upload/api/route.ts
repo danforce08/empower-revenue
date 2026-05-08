@@ -184,22 +184,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Insert failed: ${insErr.message}` }, { status: 500 });
   }
 
-  // Refresh daily_rep_activity from this upload. Wipe the date range covered
-  // by the current parse and re-insert so re-uploads stay idempotent.
+  // Refresh daily_rep_activity from this upload. Previously this did a
+  // DELETE-then-INSERT in chunks, which had a nasty failure mode: the
+  // parser sorts rows by sale date ASC, so chunks process oldest-first.
+  // If any chunk failed mid-way, the loop bailed with `break` — and the
+  // delete had already wiped the entire date range, leaving the most
+  // recent dates (the unwritten chunks) as a black hole. That's why
+  // "current month always shows zero active reps" was a persistent bug.
+  //
+  // The new flow: just upsert. The PK is `(rep_name, activity_date, kind)`
+  // so re-uploads are idempotent on their own. If a chunk fails, log and
+  // keep going so the rest of the data still lands. Trade-off: rows whose
+  // (rep, date, kind) combo is no longer in the export will linger
+  // (e.g. a deal that was un-cancelled or had its sale date corrected
+  // after the original upload). Minor staleness, no missing data.
   const dailyRows = parsed.dailyRepActivity ?? [];
+  let chunkFailures = 0;
   if (dailyRows.length > 0) {
-    const minDate = dailyRows.reduce((m, r) => (r.activity_date < m ? r.activity_date : m), dailyRows[0].activity_date);
-    const maxDate = dailyRows.reduce((m, r) => (r.activity_date > m ? r.activity_date : m), dailyRows[0].activity_date);
-    const { error: delDailyErr } = await supabase
-      .from('daily_rep_activity')
-      .delete()
-      .gte('activity_date', minDate)
-      .lte('activity_date', maxDate);
-    if (delDailyErr) {
-      // Soft-fail — historical reads still work, just with stale data
-      console.warn('[upload] daily_rep_activity cleanup failed:', delDailyErr.message);
-    }
-    // Chunk inserts to keep request size sane.
     const CHUNK = 500;
     for (let i = 0; i < dailyRows.length; i += CHUNK) {
       const chunk = dailyRows.slice(i, i + CHUNK);
@@ -208,14 +209,25 @@ export async function POST(request: NextRequest) {
         ignoreDuplicates: false,
       });
       if (drErr) {
-        console.warn('[upload] daily_rep_activity insert chunk failed:', drErr.message);
-        break;
+        chunkFailures++;
+        console.warn(
+          `[upload] daily_rep_activity chunk ${i}-${i + chunk.length} failed: ${drErr.message}`,
+        );
+        // Don't break — keep upserting subsequent chunks so the most
+        // recent dates still land even if an earlier chunk had a hiccup.
+        continue;
       }
     }
   }
 
   const warnings = [...parsed.warnings];
   if (skippedCount > 0) warnings.push(`Skipped ${skippedCount} test/QA branch buckets`);
+  if (chunkFailures > 0) {
+    warnings.push(
+      `${chunkFailures} daily_rep_activity chunk(s) failed to upsert — check function logs. ` +
+      `Other chunks landed; rerun upload to retry.`,
+    );
+  }
 
   // Per-channel summary
   const perChannel: Record<string, { weeks: number; rows: number }> = {};
