@@ -69,13 +69,56 @@ export async function GET() {
     .slice(0, 10)
     .map(([date, v]) => ({ date, sale: v.sale.size, install: v.install.size }));
 
+  // ---- Now query the DB to compare what was actually persisted. ----
+  // Fetch in pages of 1000 to escape any default cap; loop until we've
+  // pulled everything matching activity_date >= 2026-01-01.
+  const dbRows: Array<{ rep_name: string; activity_date: string; kind: string | null }> = [];
+  const PAGE = 1000;
+  let from = 0;
+  for (let i = 0; i < 50; i++) {
+    const { data, error } = await supabase
+      .from('daily_rep_activity')
+      .select('rep_name, activity_date, kind')
+      .gte('activity_date', '2026-01-01')
+      .order('activity_date', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) return NextResponse.json({ error: `db page failed: ${error.message}` }, { status: 500 });
+    if (!data || data.length === 0) break;
+    dbRows.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  // Same shape as parser-side summary.
+  const dbByMonth = new Map<string, { sale: Set<string>; install: Set<string>; nullKind: Set<string>; rows: number }>();
+  for (const r of dbRows) {
+    const month = r.activity_date.slice(0, 7);
+    let m = dbByMonth.get(month);
+    if (!m) { m = { sale: new Set(), install: new Set(), nullKind: new Set(), rows: 0 }; dbByMonth.set(month, m); }
+    m.rows++;
+    if (r.kind === 'sale') m.sale.add(r.rep_name);
+    else if (r.kind === 'install') m.install.add(r.rep_name);
+    else m.nullKind.add(r.rep_name);
+  }
+  const dbSummary = Array.from(dbByMonth.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, v]) => ({
+      month,
+      rows: v.rows,
+      sale_distinct_reps: v.sale.size,
+      install_distinct_reps: v.install.size,
+      null_kind_distinct_reps: v.nullKind.size,
+    }));
+
   return NextResponse.json({
     fileName: file.name,
     rowCount: parsed.rowCount,
     classified: parsed.classified,
-    dailyRepActivityTotal: parsed.dailyRepActivity.length,
-    byMonth: summary,
-    latestDates,
-    dateRange: parsed.dateMin && parsed.dateMax ? `${parsed.dateMin} → ${parsed.dateMax}` : null,
+    parserDailyRepActivityTotal: parsed.dailyRepActivity.length,
+    parserByMonth: summary,
+    parserLatestDates: latestDates,
+    parserDateRange: parsed.dateMin && parsed.dateMax ? `${parsed.dateMin} → ${parsed.dateMax}` : null,
+    dbTotalRowsFetched: dbRows.length,
+    dbByMonth: dbSummary,
   });
 }
