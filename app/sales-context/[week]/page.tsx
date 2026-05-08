@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm';
 import { listReports, getReport } from '@/lib/sales-context/reports';
 import { Sidebar } from '@/lib/sales-context/Sidebar';
 import { PipelineBlock } from '@/lib/sales-context/PipelineBlock';
+import { ReportEditor } from '@/components/sales-context/report-editor';
+import { publishReport } from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,9 +50,14 @@ export default async function WeekPage({
                 <span className="text-[var(--muted)] font-medium">
                   {report.date_range ?? ''}
                 </span>
-                {isLatest && (
+                {isLatest && report.published && (
                   <span className="inline-flex items-center rounded-full border border-[var(--brand-cyan)] bg-[var(--brand-cyan-soft)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--ink)]">
                     Latest
+                  </span>
+                )}
+                {!report.published && (
+                  <span className="inline-flex items-center rounded-full border border-amber-500 bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-900">
+                    Draft
                   </span>
                 )}
               </div>
@@ -111,7 +118,48 @@ export default async function WeekPage({
             </nav>
           )}
 
-          <footer className="mt-16 pt-6 border-t border-[var(--border)] text-xs text-[var(--muted)] flex items-center justify-between">
+          <section className="mt-12 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 space-y-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="text-xs text-[var(--muted)]">
+                Status:{' '}
+                <span
+                  className={`font-semibold ${
+                    report.published ? 'text-[var(--ink)]' : 'text-amber-700'
+                  }`}
+                >
+                  {report.published ? 'Published' : 'Draft'}
+                </span>
+                <span className="ml-2">
+                  {report.published
+                    ? 'Visible in the sidebar to all dashboard users.'
+                    : 'Hidden until published.'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <ReportEditor slug={report.slug} initialBody={report.body} />
+                <form action={publishReport}>
+                  <input type="hidden" name="slug" value={report.slug} />
+                  <input
+                    type="hidden"
+                    name="published"
+                    value={report.published ? 'false' : 'true'}
+                  />
+                  <button
+                    type="submit"
+                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition shadow-sm ${
+                      report.published
+                        ? 'border border-[var(--border)] bg-[var(--surface-muted)] text-[var(--ink)] hover:bg-[var(--surface)]'
+                        : 'bg-brand-gradient text-white hover:opacity-95'
+                    }`}
+                  >
+                    {report.published ? 'Move to draft' : 'Publish'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </section>
+
+          <footer className="mt-8 pt-6 border-t border-[var(--border)] text-xs text-[var(--muted)] flex items-center justify-between">
             <span>Empower Home Services · Internal · Audience: ops team</span>
             {report.word_count && (
               <span className="tabular-nums">{report.word_count} words</span>

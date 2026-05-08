@@ -46,6 +46,17 @@ export function Sidebar({
                         <span className="inline-block w-1 h-1 rounded-full bg-[var(--brand-cyan)]" />
                       )}
                       {r.week}
+                      {!r.published && (
+                        <span
+                          className={`ml-auto inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${
+                            active
+                              ? 'bg-white/20 text-white'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          Draft
+                        </span>
+                      )}
                     </div>
                     <div
                       className={`mt-0.5 text-xs ${

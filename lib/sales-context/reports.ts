@@ -24,11 +24,13 @@ export type ReportMeta = {
   word_count?: number;
   headline?: string;
   pipeline?: PipelineData;
+  published: boolean;
 };
 
 export type Report = ReportMeta & {
   raw: string; // full markdown source (with frontmatter)
-  content: string; // markdown body with `## Pipeline` stripped
+  body: string; // markdown body without frontmatter, with `## Pipeline` intact
+  content: string; // markdown body with `## Pipeline` stripped (read view)
   pipelineMarkdown?: string;
 };
 
@@ -92,6 +94,10 @@ function metaFromRaw(slug: string, raw: string): ReportMeta {
     word_count: data.word_count,
     headline: extractHeadline(content),
     pipeline: data.pipeline as PipelineData | undefined,
+    // Default published=true for back-compat: existing reports without the flag
+    // (W18 and earlier) are treated as already published. Drafts must opt in
+    // explicitly with `published: false`.
+    published: data.published !== false,
   };
 }
 
@@ -171,7 +177,7 @@ export async function getReport(slug: string): Promise<Report | null> {
   const raw = (await readBlobReport(slug)) ?? (await readFsReport(slug));
   if (!raw) return null;
   const { data, content } = matter(raw);
-  const { body, removed } = splitPipelineSection(content);
+  const { body: contentSansPipeline, removed } = splitPipelineSection(content);
   return {
     slug,
     week: data.week ?? slug,
@@ -180,8 +186,10 @@ export async function getReport(slug: string): Promise<Report | null> {
     word_count: data.word_count,
     headline: extractHeadline(content),
     pipeline: data.pipeline as PipelineData | undefined,
+    published: data.published !== false,
     raw,
-    content: body,
+    body: content,
+    content: contentSansPipeline,
     pipelineMarkdown: removed || undefined,
   };
 }
@@ -207,4 +215,43 @@ export async function saveReport(
     allowOverwrite: true,
   });
   return { url: result.url, pathname: result.pathname };
+}
+
+/**
+ * Flip a report's `published` frontmatter flag and re-save it to Blob.
+ * Used by the publish/unpublish action on the read page.
+ */
+export async function setPublished(
+  slug: string,
+  published: boolean,
+): Promise<void> {
+  const raw = (await readBlobReport(slug)) ?? (await readFsReport(slug));
+  if (!raw) throw new Error(`Report not found: ${slug}`);
+  const parsed = matter(raw);
+  const next = matter.stringify(parsed.content, {
+    ...parsed.data,
+    published,
+  });
+  await saveReport(slug, next);
+}
+
+/**
+ * Replace the markdown body of a report (everything after the YAML
+ * frontmatter, including the `## Pipeline` section). Frontmatter — and
+ * specifically the `published` flag and pipeline data — is preserved.
+ * Used by the in-page editor on the read view.
+ */
+export async function setReportBody(slug: string, body: string): Promise<void> {
+  const raw = (await readBlobReport(slug)) ?? (await readFsReport(slug));
+  if (!raw) throw new Error(`Report not found: ${slug}`);
+  const parsed = matter(raw);
+  const next = matter.stringify(body, parsed.data);
+  await saveReport(slug, next);
+}
+
+/** Body markdown (post-frontmatter, including the `## Pipeline` section). */
+export async function getReportBody(slug: string): Promise<string | null> {
+  const raw = (await readBlobReport(slug)) ?? (await readFsReport(slug));
+  if (!raw) return null;
+  return matter(raw).content;
 }
