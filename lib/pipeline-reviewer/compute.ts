@@ -166,9 +166,16 @@ export function byBranch(deals: Deal[], opts: TimelineOpts, asOf: Date): Timelin
   return timelineGroup(deals, (d) => d.branch, opts, asOf);
 }
 
+/**
+ * Truly stuck deals — `isActive` AND `daysSinceCreated >= STUCK_DAYS`
+ * (180 by default). Matches the "Stuck (180+)" KPI at the top of the
+ * page; previously this returned every active deal regardless of age,
+ * so the bottom of the list always showed 125–130d deals that weren't
+ * actually stuck.
+ */
 export function stuckDeals(deals: Deal[]) {
   return deals
-    .filter((d) => d.isActive)
+    .filter((d) => d.isStuck)
     .slice()
     .sort((a, b) => (b.daysSinceCreated ?? 0) - (a.daysSinceCreated ?? 0));
 }

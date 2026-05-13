@@ -186,7 +186,7 @@ export default function PipelineReviewerPage() {
 
           <SectionCard
             title="Stuck Deals"
-            subtitle="Active deals only · sorted by days since created · row colored by aging tier."
+            subtitle="Active deals 180+ days since created · matches the Stuck (180+) KPI above · sorted by days since created, row colored by aging tier."
           >
             <StuckDealsTable deals={stuck} />
           </SectionCard>
