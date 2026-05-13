@@ -4,15 +4,19 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
 
-const LINKS = [
-  { href: '/',               label: 'Weekly Review' },
-  { href: '/dashboard',      label: 'Dashboard' },
-  { href: '/enter',          label: 'Quick Enter' },
-  { href: '/forecast',       label: 'Forecast' },
-  { href: '/sales-context',  label: 'Sales Context' },
+// Mirror SiteNav's primary tabs so the two stay in sync. Quick Enter
+// intentionally lives inline on Weekly Review, so it's not here either.
+const PRIMARY_TABS = [
+  { href: '/',                  label: 'Weekly Review' },
+  { href: '/dashboard',         label: 'Dashboard' },
+  { href: '/sales-context',     label: 'Sales Context' },
   { href: '/pipeline-reviewer', label: 'Pipeline Reviewer' },
-  { href: '/upload',         label: 'Upload' },
-  { href: '/settings',       label: 'Settings' },
+  { href: '/forecast',          label: 'Forecast' },
+];
+
+const ACCOUNT_LINKS = [
+  { href: '/upload',   label: 'Upload Jobflo export' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 export function MobileNav() {
@@ -21,18 +25,21 @@ export function MobileNav() {
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
 
-  // Close on route change
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
+  // Close the drawer when the route changes. Derived from a render-time
+  // comparison rather than useEffect, per the "you might not need an
+  // effect" guidance — calling setState during render with a current-
+  // state derivative is the idiomatic way to react to prop changes.
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (seenPath !== pathname) {
+    setSeenPath(pathname);
+    if (open) setOpen(false);
+  }
 
   // Lock body scroll while open
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = '';
-      };
+      return () => { document.body.style.overflow = ''; };
     }
   }, [open]);
 
@@ -79,22 +86,18 @@ export function MobileNav() {
           />
           <div className="fixed inset-x-0 top-16 z-50 bg-[var(--surface)] border-b border-[var(--border)] shadow-[0_24px_48px_-16px_rgba(10,24,40,0.25)] anim-fade-rise">
             <nav className="flex flex-col py-2">
-              {LINKS.map((l) => {
-                const active = pathname === l.href;
-                return (
-                  <Link
-                    key={l.href}
-                    href={l.href}
-                    className={`px-6 py-3 text-base font-medium transition-colors ${
-                      active
-                        ? 'text-[var(--ink)] bg-[var(--brand-cyan-soft)]'
-                        : 'text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
-                    }`}
-                  >
-                    {l.label}
-                  </Link>
-                );
-              })}
+              <SectionLabel>Views</SectionLabel>
+              {PRIMARY_TABS.map((l) => (
+                <NavItem key={l.href} href={l.href} active={pathname === l.href || (l.href !== '/' && pathname.startsWith(`${l.href}/`))}>
+                  {l.label}
+                </NavItem>
+              ))}
+              <SectionLabel>Account</SectionLabel>
+              {ACCOUNT_LINKS.map((l) => (
+                <NavItem key={l.href} href={l.href} active={pathname === l.href || pathname.startsWith(`${l.href}/`)}>
+                  {l.label}
+                </NavItem>
+              ))}
               <button
                 type="button"
                 onClick={signOut}
@@ -108,5 +111,30 @@ export function MobileNav() {
         </>
       )}
     </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-6 pt-3 pb-1 text-[10px] uppercase tracking-[0.14em] font-semibold text-[var(--muted)]">
+      {children}
+    </div>
+  );
+}
+
+function NavItem({
+  href, active, children,
+}: { href: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className={`px-6 py-3 text-base font-medium transition-colors ${
+        active
+          ? 'text-[var(--ink)] bg-[var(--brand-cyan-soft)]'
+          : 'text-[var(--foreground)] hover:bg-[var(--surface-muted)]'
+      }`}
+    >
+      {children}
+    </Link>
   );
 }
