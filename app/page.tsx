@@ -676,13 +676,32 @@ function FreshChip({ ts }: { ts: string }) {
 function buildWeekOptions(currentSunday: Date, count = 26) {
   const today = new Date();
   const todaySunday = mostRecentSunday(today);
-  const todayIso = isoDate(todaySunday);
 
   const fmt = (d: Date) =>
     d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
+  // Tag options relative to TODAY, not to the picker's current value.
+  // The most recent Sunday (= the just-finished week from today's
+  // perspective) is "Last week", one before is "2 weeks ago", etc.
+  // Old code tagged the most-recent option as "This week" which read
+  // wrong every day except possibly Monday morning right after the
+  // meeting — and made the *actually-last* week look like "2 weeks ago".
+  function relativeTag(weeksBack: number): string | undefined {
+    if (weeksBack === 0) return 'Last week';
+    if (weeksBack === 1) return '2 weeks ago';
+    if (weeksBack === 2) return '3 weeks ago';
+    return undefined;
+  }
+
   const opts: { value: string; label: string; tag?: string }[] = [];
+  // Start the list at the later of the picker's selection or the most
+  // recent Sunday, so future-dated selections still appear at the top.
   const cursor = new Date(currentSunday > todaySunday ? currentSunday : todaySunday);
+  // Offset: how many weeks behind todaySunday the cursor starts at.
+  // (Negative if the user picked a future Sunday; then the relative
+  // tags don't apply to the first entry and we fall back to no tag.)
+  const startOffsetMs = todaySunday.getTime() - cursor.getTime();
+  const startWeeksBack = Math.round(startOffsetMs / (7 * 86_400_000));
   for (let i = 0; i < count; i++) {
     const sunday = new Date(cursor);
     const monday = new Date(sunday);
@@ -692,10 +711,8 @@ function buildWeekOptions(currentSunday: Date, count = 26) {
     const label =
       `${fmt(monday)} → ${fmt(sunday)}` +
       (sameYear ? `, ${sunday.getFullYear()}` : ` ${sunday.getFullYear()}`);
-    let tag: string | undefined;
-    if (value === todayIso) tag = 'This week';
-    else if (i === 1 && opts[0]?.tag === 'This week') tag = 'Last week';
-
+    const weeksBack = startWeeksBack + i;
+    const tag = weeksBack >= 0 ? relativeTag(weeksBack) : undefined;
     opts.push({ value, label, tag });
     cursor.setDate(cursor.getDate() - 7);
   }
