@@ -46,12 +46,16 @@ const ONE_DAY_MS = 86_400_000;
 // in the DB store lowercase org labels (`nusun`, `ion solar`) and a few
 // garbage values (`ar distribution`). New parser writes are already title-
 // cased + filtered, but until those rows age out we clean up here.
+//
+// NOTE: 'Call Center' is intentionally kept separate from 'Empower X'.
+// See lib/jobflo-parser.ts for rationale — Call Center is the Inside Sales
+// org and merging it loses channel-level attribution.
 const ORG_DISPLAY_OVERRIDES: Record<string, string> = {
   'empower x': 'Empower X',
   'empowerx': 'Empower X',
   'empower home services': 'Empower X',
   'empower services': 'Empower X',
-  'call center': 'Empower X',
+  'call center': 'Call Center',
 };
 
 export const dynamic = 'force-dynamic';

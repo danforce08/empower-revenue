@@ -118,13 +118,19 @@ const NON_DEALER_ORGS = new Set([
  * Normalize org name variants to a single canonical label so the Sales Team
  * Mix leaderboard collapses synonyms instead of showing multiple rows for
  * the same actual org.
+ *
+ * NOTE: 'Call Center' is intentionally NOT collapsed into 'Empower X'.
+ * Call Center is the Jobflo organization for Inside Sales (Jon Shields'
+ * phone-based team running out of Mexico). Collapsing it into Empower X
+ * obscures channel-level visibility into Inside Sales contribution and
+ * makes Total Sales attribution wrong for the GTM plan. Keep them split.
  */
 const ORG_LABEL_OVERRIDES: Record<string, string> = {
   'empowerx': 'Empower X',
   'empower x': 'Empower X',
   'empower home services': 'Empower X',
   'empower services': 'Empower X',
-  'call center': 'Empower X',
+  'call center': 'Call Center',
 };
 
 /**
