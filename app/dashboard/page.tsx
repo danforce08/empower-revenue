@@ -360,43 +360,46 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   };
 
   function production(start: string, end: string): ProductionTotals {
+    // Mirror the Weekly Review's "All products combined" sum so the two
+    // pages always agree:
+    //   Solar+Storage.accounts + Battery Only.accounts + Roofing.accounts + HVAC.install
+    // Internal and Inside Sales channels are deliberately excluded — they
+    // aren't product cards on Weekly Review, and including them would
+    // double-count Empower X solar deals (already counted in total_sales)
+    // and add internal-only rows that don't roll up to any product target.
+    let deals = 0;
     let installs = 0;
     const installsByChannel: Record<string, number> = {};
     for (const ch of salesChannels) {
       const rows = rowsInRange(metricsByChannelId.get(ch.id) ?? [], start, end);
+      let chDeals = 0;
       let chInstalls = 0;
       if (ch.key === 'hvac') {
-        // hvac: install = installed
+        // HVAC has no separate sale-count field; its quantum target
+        // tracks installs, so installs ARE the deal count (per the
+        // Weekly Review's hvacActual logic).
         const summed = proratedNumeric(rows, ch, start, end, ['install']);
+        chDeals = summed.install ?? 0;
         chInstalls = summed.install ?? 0;
       } else if (ch.key === 'inside_sales' || ch.key === 'internal') {
-        // No install tracking on these channels today.
+        // Not included in the product-target sum. Also no install
+        // tracking on these channels today.
+        chDeals = 0;
         chInstalls = 0;
       } else {
-        // total_sales / battery_only / roof: separate install events
-        // (rare overlap, e.g. a customer who got both solar and roof
-        // installed counts as two completed install jobs — that's fine).
-        const summed = proratedNumeric(rows, ch, start, end, ['installs']);
+        // total_sales / battery_only / roof: accounts = deals,
+        // installs = separate install events (rare overlap, e.g. a
+        // customer with both solar and roof installed counts as two
+        // completed install jobs — that's fine).
+        const summed = proratedNumeric(rows, ch, start, end, ['accounts', 'installs']);
+        chDeals = summed.accounts ?? 0;
         chInstalls = summed.installs ?? 0;
       }
+      deals += chDeals;
       installs += chInstalls;
       installsByChannel[ch.key] = Math.round(chInstalls);
     }
-    // "Deals" is the deduped raw row count from the export — every
-    // classified row contributes 1 to `accounts_created` on the
-    // total_sales bucket (parser emits this for every non-unclassified
-    // row regardless of channel attribution). This avoids the previous
-    // double-count where an Empower X solar deal counted once in
-    // total_sales AND once in internal, inflating the headline by ~30%.
-    let deals = 0;
-    if (totalSalesChannel) {
-      const tsRowsInRange = rowsInRange(tsRows, start, end);
-      const summed = proratedNumeric(
-        tsRowsInRange, totalSalesChannel, start, end, ['accounts_created'],
-      );
-      deals = Math.round(summed.accounts_created ?? 0);
-    }
-    return { deals, installs: Math.round(installs), installsByChannel };
+    return { deals: Math.round(deals), installs: Math.round(installs), installsByChannel };
   }
 
   function revenueFromInstalls(installsByChannel: Record<string, number>): number {
@@ -581,7 +584,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
         <SectionHeader
           eyebrow="All Products"
           title="Combined volume — deals + installs"
-          subtitle="Each created deal counted once · installs sum across products (a customer with both solar and roof installed = 2 install jobs)"
+          subtitle="Solar+Storage + Battery Only + Roofing + HVAC · matches the Weekly Review's All Products Combined total"
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <ProductionCard
