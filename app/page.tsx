@@ -6,8 +6,8 @@ import {
   monthStart,
   mostRecentSunday,
   parseIsoDate,
-  previousWeek,
   quarterStart,
+  weekEnd,
   weekStart,
   yearStart,
 } from '@/lib/periods';
@@ -28,7 +28,13 @@ export default async function HomePage({ searchParams }: PageProps) {
   const params = await searchParams;
   const weekEndingDate = params.week ? parseIsoDate(params.week) : mostRecentSunday();
   const weekStarting = weekStart(weekEndingDate);
-  const lastWeek = previousWeek(weekStarting);
+  // "Last Week Scoreboard" shows data for the week ENDING on the picker's
+  // date — i.e. the week the picker label describes ("Last week · Apr 27 →
+  // May 3" should yield Apr 27–May 3 data). The old `previousWeek(weekStart)`
+  // path shifted one further week back, so the displayed numbers didn't
+  // match the picker's label and didn't agree with /dashboard's "Last
+  // Week" card for the same calendar week.
+  const lastWeek = { start: weekStarting, end: weekEnd(weekEndingDate) };
   const mtdStart = monthStart(weekEndingDate);
   const qtdStart = quarterStart(weekEndingDate);
   const ytdStart = yearStart(weekEndingDate);
