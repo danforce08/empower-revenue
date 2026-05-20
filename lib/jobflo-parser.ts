@@ -797,6 +797,152 @@ export type UnattributedDiagnosticRow = {
   dealer: boolean;
 };
 
+/**
+ * DIAGNOSTIC — count rows whose Install Completed Date falls in
+ * [startIso, endIso], broken out by classification. Helps pinpoint
+ * which install categories the dashboard is or isn't counting.
+ */
+export async function countInstallsByCategory(
+  buffer: ArrayBuffer,
+  startIso: string,
+  endIso: string,
+): Promise<{
+  total_install_completed: number;
+  solar: number;
+  battery_only: number;
+  roof: number;
+  hvac: number;
+  multi_product: number;
+  uncategorized: number;
+  // Bonus: rows with PTO Received Date in range, in case Jobflo's count
+  // is anchored on PTO rather than Install Completed.
+  total_pto_received: number;
+  sample: Array<{ id: string; fullName: string; org: string; installDate: string; isSolar: string; classification: string[] }>;
+}> {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const sheetName = wb.SheetNames.includes('Customers') ? 'Customers' : wb.SheetNames[0];
+  if (!sheetName) {
+    return {
+      total_install_completed: 0, solar: 0, battery_only: 0, roof: 0, hvac: 0,
+      multi_product: 0, uncategorized: 0, total_pto_received: 0, sample: [],
+    };
+  }
+  const ws = wb.Sheets[sheetName];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  if (rows.length < 2) {
+    return {
+      total_install_completed: 0, solar: 0, battery_only: 0, roof: 0, hvac: 0,
+      multi_product: 0, uncategorized: 0, total_pto_received: 0, sample: [],
+    };
+  }
+  const header = rows[0].map(cleanHeader);
+  const cols = {
+    rep:           indexFor(header, 'rep'),
+    branch:        indexFor(header, 'branch'),
+    saleDate:      indexFor(header, 'saleDate'),
+    installDate:   indexFor(header, 'installDate'),
+    status:        indexFor(header, 'status'),
+    isSolar:       indexFor(header, 'isSolar'),
+    roofScheduled: indexFor(header, 'roofScheduled'),
+    roofCompleted: indexFor(header, 'roofCompleted'),
+    customerId:    indexFor(header, 'customerId'),
+    organization:  indexFor(header, 'organization'),
+    source:        indexFor(header, 'source'),
+    fundingPartner: indexFor(header, 'fundingPartner'),
+    soldSystemSize: indexFor(header, 'soldSystemSize'),
+    battery:        indexFor(header, 'battery'),
+    fullName:       header.findIndex((h) => h === 'full name'),
+    ptoReceived:    header.findIndex((h) => h === 'pto received date'),
+  };
+
+  const retrofitClients = buildBatteryRetrofitMap(wb);
+  const hvacClients = buildHvacCustomerMap(wb);
+
+  let total = 0;
+  let solarCount = 0;
+  let batteryOnlyCount = 0;
+  let roofCount = 0;
+  let hvacCount = 0;
+  let multi = 0;
+  let uncategorized = 0;
+  let ptoTotal = 0;
+  const sample: Array<{ id: string; fullName: string; org: string; installDate: string; isSolar: string; classification: string[] }> = [];
+
+  for (const r of rows.slice(1)) {
+    if (!r.some((c) => c !== '' && c != null)) continue;
+    const installDate = cols.installDate >= 0 ? parseDateLike(r[cols.installDate]) : null;
+    if (installDate) {
+      const installIso = isoDate(installDate);
+      if (installIso >= startIso && installIso <= endIso) {
+        total++;
+
+        const customerId = cols.customerId >= 0 ? String(r[cols.customerId] ?? '') : '';
+        const isSolarFlag = isSolarRow(r, cols.isSolar);
+        const roof = isRoofRow(r, cols);
+        const fundingPartner = cols.fundingPartner >= 0
+          ? String(r[cols.fundingPartner] ?? '').trim().toLowerCase()
+          : '';
+        const soldSizeRaw = cols.soldSystemSize >= 0 ? r[cols.soldSystemSize] : '';
+        const soldSize = soldSizeRaw === '' || soldSizeRaw == null ? 0 : Number(soldSizeRaw);
+        const batteryEquipment = cols.battery >= 0 ? String(r[cols.battery] ?? '').trim() : '';
+        const isParticipateRetrofit =
+          fundingPartner === 'participate energy'
+          && soldSize === 0
+          && batteryEquipment.length > 0;
+        const batteryOnly = isParticipateRetrofit
+          || (!!customerId && retrofitClients.has(customerId));
+        const isSolarByFinancing =
+          !isSolarFlag
+          && fundingPartner !== 'participate energy'
+          && SOLAR_FUNDING_PARTNERS.has(fundingPartner);
+        const solar = (isSolarFlag || isSolarByFinancing) && !batteryOnly;
+        const hvac = !!customerId && hvacClients.has(customerId);
+
+        const tags: string[] = [];
+        if (solar) tags.push('solar');
+        if (roof) tags.push('roof');
+        if (batteryOnly) tags.push('battery_only');
+        if (hvac) tags.push('hvac');
+
+        if (solar) solarCount++;
+        if (batteryOnly) batteryOnlyCount++;
+        if (roof) roofCount++;
+        if (hvac) hvacCount++;
+        if (tags.length > 1) multi++;
+        if (tags.length === 0) uncategorized++;
+
+        if (sample.length < 25) {
+          sample.push({
+            id: customerId,
+            fullName: cols.fullName >= 0 ? String(r[cols.fullName] ?? '') : '',
+            org: cols.organization >= 0 ? String(r[cols.organization] ?? '') : '',
+            installDate: installIso,
+            isSolar: cols.isSolar >= 0 ? String(r[cols.isSolar] ?? '') : '',
+            classification: tags.length ? tags : ['UNCATEGORIZED'],
+          });
+        }
+      }
+    }
+    const pto = cols.ptoReceived >= 0 ? parseDateLike(r[cols.ptoReceived]) : null;
+    if (pto) {
+      const ptoIso = isoDate(pto);
+      if (ptoIso >= startIso && ptoIso <= endIso) ptoTotal++;
+    }
+  }
+
+  return {
+    total_install_completed: total,
+    solar: solarCount,
+    battery_only: batteryOnlyCount,
+    roof: roofCount,
+    hvac: hvacCount,
+    multi_product: multi,
+    uncategorized,
+    total_pto_received: ptoTotal,
+    sample,
+  };
+}
+
 export async function findUnattributedRows(
   buffer: ArrayBuffer,
   startIso: string,
