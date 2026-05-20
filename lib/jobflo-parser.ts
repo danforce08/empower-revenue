@@ -675,11 +675,30 @@ export async function parseJobfloFile(
       }
     }
     if (batteryOnly) {
+      // Sale-week bucket
       addToBucket(buckets, bucketKey('battery_only', wkStartIso, branch), {
         channelKey: 'battery_only',
         weekStart: wkStartIso, weekEnd: wkEndIso, branch,
-        delta: { accounts: 1, installs: 0 },
+        delta: { accounts: 1 },
       });
+      // Install-week bucket — battery retrofits DO get installed (Participate
+      // ships hardware and someone bolts it on). The old code hard-coded
+      // `installs: 0` here, which silently dropped every battery install
+      // from /dashboard's MTD/QTD/YTD installs totals. Mirror the solar
+      // pattern: separate bucket keyed by install-completed week.
+      const installDate = cols.installDate >= 0
+        ? parseDateLike(r[cols.installDate])
+        : null;
+      if (installDate && !isFutureInstall(installDate)) {
+        const iwkStart = weekStart(installDate);
+        const iwkEnd = new Date(iwkStart);
+        iwkEnd.setDate(iwkEnd.getDate() + 6);
+        addToBucket(buckets, bucketKey('battery_only', isoDate(iwkStart), branch), {
+          channelKey: 'battery_only',
+          weekStart: isoDate(iwkStart), weekEnd: isoDate(iwkEnd), branch,
+          delta: { installs: 1 },
+        });
+      }
     }
     if (hvac) {
       // HVAC sale lands in the customer's sale-week bucket. Install date
