@@ -817,6 +817,150 @@ export type UnattributedDiagnosticRow = {
 };
 
 /**
+ * DIAGNOSTIC — broad scan of every install-related date column in the
+ * Customers sheet, plus a sniff of other sheets that might contain
+ * install events. Used to locate the gap when Jobflo's reported
+ * install count exceeds what the parser sees in Customers.
+ */
+export async function scanInstallSources(
+  buffer: ArrayBuffer,
+  startIso: string,
+  endIso: string,
+): Promise<{
+  sheets: string[];
+  customer_install_dates: Record<string, number>;  // column -> count of rows in range
+  project_statuses_in_range: Record<string, number>;  // status -> count among rows with Install Completed in range
+  future_install_completed: number;
+  same_day_install_pto: number;
+  adders_sheet_summary?: { rows: number; hvac_keywords: number; install_columns: string[] };
+  cases_sheet_summary?: { rows: number; install_columns: string[] };
+  service_sheet_summary?: { rows: number; install_columns: string[] };
+}> {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const sheets = wb.SheetNames;
+  const customers = wb.Sheets['Customers'];
+  if (!customers) {
+    return { sheets, customer_install_dates: {}, project_statuses_in_range: {}, future_install_completed: 0, same_day_install_pto: 0 };
+  }
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(customers, { header: 1, raw: true, defval: '' });
+  if (rows.length < 2) {
+    return { sheets, customer_install_dates: {}, project_statuses_in_range: {}, future_install_completed: 0, same_day_install_pto: 0 };
+  }
+  const header = (rows[0] as unknown[]).map(cleanHeader);
+
+  // Every column that looks install-related. Catch-all so we surface
+  // anything we haven't been tracking.
+  const installRelated = header
+    .map((h, idx) => ({ h, idx }))
+    .filter(({ h }) =>
+      h.includes('install')
+      || h.includes('pto')
+      || h.includes('inspection')
+      || h.includes('mpu')
+      || h.includes('meter set')
+      || h.includes('placard')
+      || h.includes('interconnection'),
+    );
+
+  const counts: Record<string, number> = {};
+  const today = isoDate(new Date());
+  let futureInstallCompleted = 0;
+  let sameDayInstallPto = 0;
+
+  const installCompletedIdx = header.findIndex((h) => h === 'install completed date');
+  const ptoReceivedIdx = header.findIndex((h) => h === 'pto received date');
+  const statusIdx = header.findIndex((h) => h === 'project status');
+  const statusCounts: Record<string, number> = {};
+
+  for (const r of rows.slice(1)) {
+    if (!r.some((c) => c !== '' && c != null)) continue;
+    for (const { h, idx } of installRelated) {
+      const d = parseDateLike(r[idx]);
+      if (!d) continue;
+      const iso = isoDate(d);
+      if (iso >= startIso && iso <= endIso) {
+        counts[h] = (counts[h] ?? 0) + 1;
+      }
+    }
+    // Future-dated Install Completed: rows the parser drops via isFutureInstall.
+    if (installCompletedIdx >= 0) {
+      const d = parseDateLike(r[installCompletedIdx]);
+      if (d) {
+        const iso = isoDate(d);
+        if (iso > today) futureInstallCompleted++;
+        if (iso >= startIso && iso <= endIso && statusIdx >= 0) {
+          const s = String(r[statusIdx] ?? '').trim() || '(blank)';
+          statusCounts[s] = (statusCounts[s] ?? 0) + 1;
+        }
+      }
+    }
+    // Same-day install + PTO (parser would count this once on install
+    // bucket; Jobflo might count it twice or under a different metric).
+    if (installCompletedIdx >= 0 && ptoReceivedIdx >= 0) {
+      const di = parseDateLike(r[installCompletedIdx]);
+      const dp = parseDateLike(r[ptoReceivedIdx]);
+      if (di && dp && isoDate(di) === isoDate(dp)
+          && isoDate(di) >= startIso && isoDate(di) <= endIso) {
+        sameDayInstallPto++;
+      }
+    }
+  }
+
+  // Other sheets — see if they have install-related columns we're not reading.
+  function sniffSheet(name: string): { rows: number; install_columns: string[] } | undefined {
+    const ws = wb.Sheets[name];
+    if (!ws) return undefined;
+    const r2: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    if (r2.length < 1) return { rows: 0, install_columns: [] };
+    const h2 = (r2[0] as unknown[]).map(cleanHeader);
+    return {
+      rows: r2.length - 1,
+      install_columns: h2.filter((h) => h.includes('install') || h.includes('pto') || h.includes('completed')),
+    };
+  }
+  const adders = sniffSheet('Adders');
+  const cases = sniffSheet('Cases');
+  const service = sniffSheet('Service') ?? sniffSheet('Services') ?? sniffSheet('Maintenance');
+
+  // Bonus: count HVAC keyword hits in the Adders Name column, for May range.
+  let addersHvacInRange = 0;
+  const addersWs = wb.Sheets['Adders'];
+  if (addersWs) {
+    const ar: unknown[][] = XLSX.utils.sheet_to_json(addersWs, { header: 1, raw: true, defval: '' });
+    if (ar.length >= 2) {
+      const ah = (ar[0] as unknown[]).map(cleanHeader);
+      const nameIdx = ah.findIndex((h) => h === 'name');
+      const dateCandidates = ah
+        .map((h, i) => ({ h, i }))
+        .filter(({ h }) => h.includes('install') || h.includes('completed') || h === 'created at' || h.includes('date'));
+      for (let i = 1; i < ar.length; i++) {
+        const name = String(ar[i]?.[nameIdx] ?? '').toLowerCase();
+        if (!name.includes('hvac')) continue;
+        // Any install/date column with a date in range
+        for (const { i: di } of dateCandidates) {
+          const d = parseDateLike(ar[i]?.[di]);
+          if (d) {
+            const iso = isoDate(d);
+            if (iso >= startIso && iso <= endIso) { addersHvacInRange++; break; }
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    sheets,
+    customer_install_dates: counts,
+    project_statuses_in_range: statusCounts,
+    future_install_completed: futureInstallCompleted,
+    same_day_install_pto: sameDayInstallPto,
+    adders_sheet_summary: adders ? { ...adders, hvac_keywords: addersHvacInRange } : undefined,
+    cases_sheet_summary: cases,
+    service_sheet_summary: service,
+  };
+}
+
+/**
  * DIAGNOSTIC — count rows whose Install Completed Date falls in
  * [startIso, endIso], broken out by classification. Helps pinpoint
  * which install categories the dashboard is or isn't counting.
