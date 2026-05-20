@@ -170,6 +170,43 @@ function isValidOrgName(orgNorm: string): boolean {
 }
 
 /**
+ * Funding partners that only lend on solar systems. When a row's Is Solar
+ * flag is blank but the funding partner is in this set, we treat the
+ * deal as solar — fixes Empower X's internal data-hygiene gap where the
+ * Is Solar toggle frequently doesn't get set in Jobflo even though the
+ * deal is unambiguously solar (financing, pipeline status, branch, and
+ * rep all align with solar).
+ *
+ * Excludes Participate Energy, which is the explicit battery-retrofit
+ * marker handled separately.
+ */
+const SOLAR_FUNDING_PARTNERS = new Set([
+  'goodleap', 'good leap', 'loanpal',
+  'mosaic',
+  'sunlight', 'sunlight financial',
+  'sungage', 'sungage financial',
+  'dividend', 'dividend finance', 'fifth third dividend',
+  'iccu', 'idaho central credit union',
+  'credit human',
+  'renew financial',
+  'lightreach', 'light reach',
+  'sunrun',
+  'sunnova',
+  'service finance', 'service finance company',
+  'enerbank',
+  'ygrene',
+  'everbright',
+  'enphase',
+  'home run financing', 'hfs financial',
+  'ca first', 'california first', 'califirst',
+  'pace funding', 'pace funding group',
+  'counterpointe',
+  'petros pace',
+  'powerfin', 'powerfin partners',
+  'swell', 'swell energy',
+]);
+
+/**
  * Source values that indicate an IP channel deal, which should not roll up
  * into Dealer (IP is its own channel owned by Brad Morris).
  */
@@ -449,9 +486,20 @@ export async function parseJobfloFile(
       && batteryEquipment.length > 0;
     const batteryOnly = isParticipateRetrofit
       || (!!customerId && retrofitClients.has(customerId));
+    // Solar inference fallback. The Is Solar flag is frequently blank on
+    // Empower X internal entries even though the deal is plainly solar
+    // (solar lender, solar-pipeline status, internal rep). If the column
+    // says nothing but the funding partner only ever lends on solar
+    // systems, treat as solar. Explicitly excludes the Participate
+    // Energy retrofit path which the battery_only branch owns.
+    const isSolarByFinancing =
+      !isSolarFlag
+      && fundingPartner !== 'participate energy'
+      && SOLAR_FUNDING_PARTNERS.has(fundingPartner);
+    const isSolarEffective = isSolarFlag || isSolarByFinancing;
     // A row classified as battery_only is NOT also counted toward solar, even
     // when Jobflo's Is Solar flag is TRUE (it lies for retrofits).
-    const solar = isSolarFlag && !batteryOnly;
+    const solar = isSolarEffective && !batteryOnly;
     const internal = isInternalRow(r, cols.organization);
     const dealer = isDealerRow(r, cols);
     // HVAC sold via Adders sheet: any customer with an "HVAC" adder name
