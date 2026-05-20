@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 
 type Option = {
@@ -20,12 +20,16 @@ export function WeekPicker({
   options: Option[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [pending, start] = useTransition();
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
     start(() => {
-      router.push(`/?week=${v}`);
+      // Stay on the current page when changing the picker. Previously
+      // this hard-coded `/?week=...`, which kicked /dashboard users
+      // back to the Weekly Review.
+      router.push(`${pathname}?week=${v}`);
     });
   }
 

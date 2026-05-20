@@ -71,12 +71,17 @@ type PageProps = { searchParams: Promise<{ week?: string }> };
 export default async function DashboardPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const today = new Date();
-  const weekEndingDate = params.week ? parseIsoDate(params.week) : mostRecentSunday();
-  // Anchor for "This Week" / MTD / QTD / YTD. When the picker is at a past
-  // Sunday but today is later in the week, use today so the cumulative
-  // periods include real-time activity. The picker's only effect on those
-  // cards is for backward-looking what-ifs.
-  const anchor = today > weekEndingDate ? today : weekEndingDate;
+  const explicitlyPicked = !!params.week;
+  const weekEndingDate = explicitlyPicked ? parseIsoDate(params.week as string) : mostRecentSunday();
+  // Anchor for "This Week" / "Last Week" / MTD / QTD / YTD ranges.
+  //   - Default load (no ?week param): anchor = today so MTD/YTD include
+  //     real-time activity through today and "This Week" reflects the
+  //     current in-progress calendar week.
+  //   - User explicitly picked a past Sunday: anchor = that Sunday, so
+  //     the whole dashboard reads "as of" that point in time. Previously
+  //     this ignored past picker values (anchor was always max(today,
+  //     picker)) — selecting a past week was a no-op.
+  const anchor = explicitlyPicked ? weekEndingDate : today;
   const thisWeekStart = weekStart(anchor);
   const lastWeek = previousWeek(thisWeekStart);
   const mtdStart = monthStart(anchor);
