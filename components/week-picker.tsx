@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useTransition } from 'react';
 
 type Option = {
@@ -21,16 +21,22 @@ export function WeekPicker({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [pending, start] = useTransition();
+  // True iff the user has explicitly picked a week (?week= in URL).
+  // We show a reset (×) button only in this case — when picker is at
+  // its default, there's nothing to reset to.
+  const hasExplicitPick = !!searchParams.get('week');
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value;
     start(() => {
-      // Stay on the current page when changing the picker. Previously
-      // this hard-coded `/?week=...`, which kicked /dashboard users
-      // back to the Weekly Review.
       router.push(`${pathname}?week=${v}`);
     });
+  }
+
+  function onReset() {
+    start(() => router.push(pathname));
   }
 
   return (
@@ -51,6 +57,21 @@ export function WeekPicker({
           </option>
         ))}
       </select>
+      {hasExplicitPick && (
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={pending}
+          aria-label="Reset to default week"
+          title="Reset to default (latest week)"
+          className="inline-flex items-center justify-center w-6 h-6 rounded-md text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-muted)] transition-colors disabled:opacity-50 -ml-1"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

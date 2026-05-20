@@ -8,6 +8,7 @@ import {
   parseIsoDate,
   previousWeek,
   quarterStart,
+  weekEnd,
   weekStart,
   yearStart,
 } from '@/lib/periods';
@@ -82,8 +83,27 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   //     this ignored past picker values (anchor was always max(today,
   //     picker)) — selecting a past week was a no-op.
   const anchor = explicitlyPicked ? weekEndingDate : today;
-  const thisWeekStart = weekStart(anchor);
-  const lastWeek = previousWeek(thisWeekStart);
+  // "Last Week" semantics:
+  //  - Explicit picker: the picker's full Mon-Sun week. Matches Weekly
+  //    Review's "Last Week Scoreboard" so the two pages agree on which
+  //    week's number is being shown.
+  //  - Default (no picker): the most-recently-completed full week
+  //    relative to today.
+  // "This Week" is always the current real-world calendar week (Mon →
+  // today), regardless of picker — so a historical review still surfaces
+  // "what's happening right now" in that card.
+  let lastWeekStartDate: Date;
+  let lastWeekEndDate: Date;
+  if (explicitlyPicked) {
+    lastWeekStartDate = weekStart(weekEndingDate);
+    lastWeekEndDate = weekEnd(weekEndingDate);
+  } else {
+    const prev = previousWeek(weekStart(today));
+    lastWeekStartDate = prev.start;
+    lastWeekEndDate = prev.end;
+  }
+  const thisWeekStart = weekStart(today);
+  const lastWeek = { start: lastWeekStartDate, end: lastWeekEndDate };
   const mtdStart = monthStart(anchor);
   const qtdStart = quarterStart(anchor);
   const ytdStart = yearStart(anchor);
@@ -105,6 +125,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const lastMonthEndIso = isoDate(lastMonthEnd);
   const fetchStartIso = isoDate(fetchStart);
   const cumulativeEndIso = isoDate(anchor);
+  // Today's ISO — used as the "This Week" card's upper bound so that
+  // card always renders the current real-world partial week regardless
+  // of whether the picker is set to a past date.
+  const todayIso = isoDate(today);
 
   const supabase = await getSupabaseServer();
 
@@ -427,7 +451,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }
 
   const prodLast = production(lastWeekStartIso, lastWeekEndIso);
-  const prodThis = production(thisWeekStartIso, cumulativeEndIso);
+  const prodThis = production(thisWeekStartIso, todayIso);
   const prodMTD = production(mtdStartIso, cumulativeEndIso);
   const prodQTD = production(qtdStartIso, cumulativeEndIso);
   const prodYTD = production(ytdStartIso, cumulativeEndIso);
@@ -609,7 +633,7 @@ export default async function DashboardPage({ searchParams }: PageProps) {
           />
           <ProductionCard
             label="This Week"
-            range={`${shortDate(thisWeekStartIso)}–${shortDate(cumulativeEndIso)}`}
+            range={`${shortDate(thisWeekStartIso)}–${shortDate(todayIso)}`}
             deals={prodThis.deals} installs={prodThis.installs}
           />
           <ProductionCard
