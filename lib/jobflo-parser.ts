@@ -726,3 +726,111 @@ function addToBucket(
     });
   }
 }
+
+/**
+ * DIAGNOSTIC ONLY — find rows that PASS the parser's "classified" gate
+ * (so they count toward `accounts_created`) but have NO product flag
+ * (no solar, no roof, no battery, no hvac). These are rows attributed
+ * only via internal-org or dealer-org. Used to investigate the gap
+ * between /dashboard's 4-product sum and the all-classified count.
+ */
+export type UnattributedDiagnosticRow = {
+  customerId: string;
+  fullName: string;
+  organization: string;
+  fundingPartner: string;
+  rep: string;
+  branch: string | null;
+  source: string;
+  saleDate: string;       // ISO
+  isSolarRaw: string;     // raw value from Is Solar column
+  status: string;
+  internal: boolean;
+  dealer: boolean;
+};
+
+export async function findUnattributedRows(
+  buffer: ArrayBuffer,
+  startIso: string,
+  endIso: string,
+): Promise<UnattributedDiagnosticRow[]> {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const sheetName = wb.SheetNames.includes('Customers') ? 'Customers' : wb.SheetNames[0];
+  if (!sheetName) return [];
+  const ws = wb.Sheets[sheetName];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  if (rows.length < 2) return [];
+
+  const header = rows[0].map(cleanHeader);
+  const cols = {
+    rep:           indexFor(header, 'rep'),
+    branch:        indexFor(header, 'branch'),
+    saleDate:      indexFor(header, 'saleDate'),
+    status:        indexFor(header, 'status'),
+    isSolar:       indexFor(header, 'isSolar'),
+    roofScheduled: indexFor(header, 'roofScheduled'),
+    roofCompleted: indexFor(header, 'roofCompleted'),
+    customerId:    indexFor(header, 'customerId'),
+    organization:  indexFor(header, 'organization'),
+    source:        indexFor(header, 'source'),
+    fundingPartner: indexFor(header, 'fundingPartner'),
+    soldSystemSize: indexFor(header, 'soldSystemSize'),
+    battery:        indexFor(header, 'battery'),
+    fullName:       header.findIndex((h) => h === 'full name'),
+  };
+
+  const retrofitClients = buildBatteryRetrofitMap(wb);
+  const hvacClients = buildHvacCustomerMap(wb);
+
+  const out: UnattributedDiagnosticRow[] = [];
+  for (const r of rows.slice(1)) {
+    if (!r.some((c) => c !== '' && c != null)) continue;
+    const sale = cols.saleDate >= 0 ? parseDateLike(r[cols.saleDate]) : null;
+    if (!sale) continue;
+    const saleIso = isoDate(sale);
+    if (saleIso < startIso || saleIso > endIso) continue;
+
+    const customerId = cols.customerId >= 0 ? String(r[cols.customerId] ?? '') : '';
+    const isSolarFlag = isSolarRow(r, cols.isSolar);
+    const roof = isRoofRow(r, cols);
+    const fundingPartner = cols.fundingPartner >= 0
+      ? String(r[cols.fundingPartner] ?? '').trim().toLowerCase()
+      : '';
+    const soldSizeRaw = cols.soldSystemSize >= 0 ? r[cols.soldSystemSize] : '';
+    const soldSize = soldSizeRaw === '' || soldSizeRaw == null ? 0 : Number(soldSizeRaw);
+    const batteryEquipment = cols.battery >= 0 ? String(r[cols.battery] ?? '').trim() : '';
+    const isParticipateRetrofit =
+      fundingPartner === 'participate energy'
+      && soldSize === 0
+      && batteryEquipment.length > 0;
+    const batteryOnly = isParticipateRetrofit
+      || (!!customerId && retrofitClients.has(customerId));
+    const solar = isSolarFlag && !batteryOnly;
+    const internal = isInternalRow(r, cols.organization);
+    const dealer = isDealerRow(r, cols);
+    const hvac = !!customerId && hvacClients.has(customerId);
+
+    const kinds = (solar ? 1 : 0) + (roof ? 1 : 0) + (batteryOnly ? 1 : 0) + (hvac ? 1 : 0);
+    // We want rows that are NOT unclassified (so they're in the parser's
+    // total counts) AND have no product flag (so they're invisible to
+    // the 4-product sum).
+    if (kinds > 0) continue;
+    if (!internal && !dealer) continue;
+
+    out.push({
+      customerId,
+      fullName: cols.fullName >= 0 ? String(r[cols.fullName] ?? '') : '',
+      organization: cols.organization >= 0 ? String(r[cols.organization] ?? '') : '',
+      fundingPartner: cols.fundingPartner >= 0 ? String(r[cols.fundingPartner] ?? '') : '',
+      rep: cols.rep >= 0 ? String(r[cols.rep] ?? '') : '',
+      branch: cols.branch >= 0 ? String(r[cols.branch] ?? '').trim() || null : null,
+      source: cols.source >= 0 ? String(r[cols.source] ?? '') : '',
+      saleDate: saleIso,
+      isSolarRaw: cols.isSolar >= 0 ? String(r[cols.isSolar] ?? '') : '',
+      status: cols.status >= 0 ? String(r[cols.status] ?? '') : '',
+      internal,
+      dealer,
+    });
+  }
+  return out;
+}
