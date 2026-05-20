@@ -965,11 +965,17 @@ function RecruitmentCard({
   );
 }
 
-// Mirrors the helper on app/page.tsx — kept inline to avoid pulling the
-// homepage's full module here.
+// Build picker options. Always anchor the top option at the most recent
+// real-world Sunday — even if the user is viewing a stale ?week= URL
+// pointing at a past Sunday. Previously the dropdown started from the
+// picker's current value, which meant a bookmark to e.g. ?week=2025-09-14
+// locked the dropdown to options going back from Sep 14, 2025 with no
+// forward path to today.
 function buildWeekOptions(currentEnding: Date, count: number): { value: string; label: string }[] {
+  const todaySunday = mostRecentSunday(new Date());
+  const top = currentEnding > todaySunday ? currentEnding : todaySunday;
   const options: { value: string; label: string }[] = [];
-  const cursor = new Date(currentEnding);
+  const cursor = new Date(top);
   for (let i = 0; i < count; i++) {
     const value = isoDate(cursor);
     options.push({ value, label: `Week ending ${value}` });
