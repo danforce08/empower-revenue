@@ -325,11 +325,21 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   }
 
   function bucketWeight(bucketStart: string, bucketEnd: string, start: string, end: string): number {
+    // Clip the bucket's effective end at today. Without this, a bucket
+    // whose period extends into the future (e.g. the current calendar
+    // week, May 18–May 24, queried mid-week on May 20) gets prorated
+    // by 3/7 even though all of its data already lives in the first 3
+    // days — days 4–7 will be empty since they haven't happened. Used
+    // to silently under-report This Week / MTD / QTD / YTD for the
+    // most recent chunk.
+    const todayIso = isoDate(today);
+    const effectiveBucketEnd = bucketEnd > todayIso ? todayIso : bucketEnd;
+    if (effectiveBucketEnd < bucketStart) return 0;
     const a = bucketStart > start ? bucketStart : start;
-    const b = bucketEnd < end ? bucketEnd : end;
+    const b = effectiveBucketEnd < end ? effectiveBucketEnd : end;
     if (a > b) return 0;
     const overlap = (Date.parse(b) - Date.parse(a)) / ONE_DAY_MS + 1;
-    const total = (Date.parse(bucketEnd) - Date.parse(bucketStart)) / ONE_DAY_MS + 1;
+    const total = (Date.parse(effectiveBucketEnd) - Date.parse(bucketStart)) / ONE_DAY_MS + 1;
     if (total <= 0) return 0;
     const w = overlap / total;
     return w < 0 ? 0 : w > 1 ? 1 : w;
