@@ -17,6 +17,8 @@ const HEADER_ALIASES = {
   soldSystemSize: ['sold system size'],
   battery:    ['battery'],
   cleanDeal:  ['clean deal completed date', 'clean deal completed', 'clean deal date'],
+  utility:    ['utility partner', 'utility'],
+  ahj:        ['ahj', 'permitting jurisdiction'],
 } as const;
 
 type AliasKey = keyof typeof HEADER_ALIASES;
@@ -29,6 +31,34 @@ export type WeeklyBucket = {
   weekEnd: string;
   branch: string | null;
   metrics: Record<string, number | string[]>;
+};
+
+/**
+ * One row per classified account (has a product: solar/battery/roof/hvac).
+ * Carries both the sold date and the install date so the Dashboard can
+ * re-base every metric by either anchor (the Sold ↔ Installed toggle) and
+ * compute "sold ∩ installed" cohorts — which the aggregated weekly buckets
+ * can't express because they key accounts and installs on different weeks.
+ */
+export type DealFact = {
+  account_id: string;
+  rep_name: string | null;
+  dealer_org: string | null;
+  branch: string | null;
+  utility: string | null;
+  ahj: string | null;
+  /** Conversion At (sold), fallback Created At — matches the "deals" basis. ISO yyyy-mm-dd. */
+  sold_date: string;
+  /** Install Completed Date (solar/battery/hvac milestone), non-future. Null = not yet installed. */
+  install_date: string | null;
+  /** Roof Install Completed Date (roof milestone), non-future. Separate so each product anchors on its own date. */
+  roof_install_date: string | null;
+  is_solar: boolean;
+  is_battery: boolean;
+  is_roof: boolean;
+  is_hvac: boolean;
+  is_clean: boolean;
+  clean_via_participate: boolean;
 };
 
 export type ParseResult = {
@@ -54,6 +84,8 @@ export type ParseResult = {
      */
     kind: 'sale' | 'install';
   }>;
+  /** One row per classified account; drives the Dashboard's Sold↔Installed toggle. */
+  dealFacts: DealFact[];
   classified: { solar: number; roof: number; battery: number; internal: number; both: number; unclassified: number };
   dateMin: string | null;
   dateMax: string | null;
@@ -334,7 +366,7 @@ export async function parseJobfloFile(
     : wb.SheetNames[0];
   if (!sheetName) {
     return {
-      fileName, rowCount: 0, buckets: [], dailyRepActivity: [],
+      fileName, rowCount: 0, buckets: [], dailyRepActivity: [], dealFacts: [],
       classified: { solar: 0, roof: 0, battery: 0, internal: 0, both: 0, unclassified: 0 },
       dateMin: null, dateMax: null, branchesSeen: [], warnings: ['No sheets found'],
     };
@@ -343,7 +375,7 @@ export async function parseJobfloFile(
   const rows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
   if (rows.length < 2) {
     return {
-      fileName, rowCount: 0, buckets: [], dailyRepActivity: [],
+      fileName, rowCount: 0, buckets: [], dailyRepActivity: [], dealFacts: [],
       classified: { solar: 0, roof: 0, battery: 0, internal: 0, both: 0, unclassified: 0 },
       dateMin: null, dateMax: null, branchesSeen: [], warnings: ['File has no data rows'],
     };
@@ -366,6 +398,8 @@ export async function parseJobfloFile(
     soldSystemSize: indexFor(header, 'soldSystemSize'),
     battery:        indexFor(header, 'battery'),
     cleanDeal:      indexFor(header, 'cleanDeal'),
+    utility:        indexFor(header, 'utility'),
+    ahj:            indexFor(header, 'ahj'),
   };
 
   const warnings: string[] = [];
@@ -414,6 +448,8 @@ export async function parseJobfloFile(
     string,
     { rep_name: string; activity_date: string; dealer_org: string | null; branch: string | null; kind: 'sale' | 'install' }
   >();
+  // One DealFact per classified account, keyed by account_id (Jobflo ID).
+  const dealFactRows = new Map<string, DealFact>();
 
   // Global "first appearance" sets used to derive recruitment markers.
   // Population is order-dependent — rows must be sorted by sale date ASC
@@ -628,6 +664,34 @@ export async function parseJobfloFile(
       }
     }
 
+    // Per-account fact for the Dashboard's Sold↔Installed toggle. Only
+    // product rows (solar/battery/roof/hvac) — same gate as production().
+    // Keyed by account_id so one row per account; first sighting wins.
+    if ((solar || batteryOnly || roof || hvac) && customerId && !dealFactRows.has(customerId)) {
+      const icDate = cols.installDate >= 0 ? parseDateLike(r[cols.installDate]) : null;
+      const rcDate = cols.roofCompleted >= 0 ? parseDateLike(r[cols.roofCompleted]) : null;
+      // Keep the two install milestones SEPARATE so installed-mode volume can
+      // count solar/battery/hvac on Install Completed and roof on Roof Install
+      // Completed — mirroring the metric buckets so the totals reconcile.
+      dealFactRows.set(customerId, {
+        account_id: customerId,
+        rep_name: repNorm || null,
+        dealer_org: orgNorm && isValidOrgName(orgNorm) ? canonicalOrgLabel(orgNorm) : null,
+        branch,
+        utility: cols.utility >= 0 ? (String(r[cols.utility] ?? '').trim() || null) : null,
+        ahj: cols.ahj >= 0 ? (String(r[cols.ahj] ?? '').trim() || null) : null,
+        sold_date: isoDate(sale),
+        install_date: icDate && !isFutureInstall(icDate) ? isoDate(icDate) : null,
+        roof_install_date: rcDate && !isFutureInstall(rcDate) ? isoDate(rcDate) : null,
+        is_solar: solar,
+        is_battery: batteryOnly,
+        is_roof: roof,
+        is_hvac: hvac,
+        is_clean: isCleanDeal,
+        clean_via_participate: isParticipate && !cleanDealDate,
+      });
+    }
+
     if (solar) {
       // Sale bucket — `accounts: 1` keyed by the SALE week.
       addToBucket(buckets, bucketKey('total_sales', wkStartIso, branch), {
@@ -763,6 +827,7 @@ export async function parseJobfloFile(
       return (a.branch ?? '').localeCompare(b.branch ?? '');
     }),
     dailyRepActivity: Array.from(dailyRepRows.values()),
+    dealFacts: Array.from(dealFactRows.values()),
     classified,
     dateMin: dateMin ? isoDate(dateMin) : null,
     dateMax: dateMax ? isoDate(dateMax) : null,

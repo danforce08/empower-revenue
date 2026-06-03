@@ -15,7 +15,9 @@ import {
 import { formatCount, formatCurrency } from '@/lib/cell-format';
 import { rollupMetrics, rowsInRange } from '@/lib/rollups';
 import type { Channel, MetricRow } from '@/lib/types';
+import type { DealFact } from '@/lib/jobflo-parser';
 import { WeekPicker } from '@/components/week-picker';
+import { BasisToggle, type Basis } from '@/components/basis-toggle';
 import { ActiveRepsChart } from '@/components/active-reps-chart';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,7 +63,7 @@ const ORG_DISPLAY_OVERRIDES: Record<string, string> = {
 
 export const dynamic = 'force-dynamic';
 
-type PageProps = { searchParams: Promise<{ week?: string }> };
+type PageProps = { searchParams: Promise<{ week?: string; basis?: string }> };
 
 /**
  * "Dashboard" page (per Dan + David's original meeting). Sits alongside the
@@ -71,6 +73,10 @@ type PageProps = { searchParams: Promise<{ week?: string }> };
  */
 export default async function DashboardPage({ searchParams }: PageProps) {
   const params = await searchParams;
+  // Date basis for the whole dashboard: 'sold' (account created/sold date,
+  // the default) or 'installed' (install completed date). Drives the volume
+  // cards, Clean Deal %, and leaderboard via the per-account deal_facts table.
+  const basis: Basis = params.basis === 'installed' ? 'installed' : 'sold';
   const today = new Date();
   const explicitlyPicked = !!params.week;
   const weekEndingDate = explicitlyPicked ? parseIsoDate(params.week as string) : mostRecentSunday();
@@ -190,7 +196,24 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     return out;
   }
 
-  const [channelsRes, metrics, recruitmentRes, dailyReps, scenarioRes] = await Promise.all([
+  async function fetchAllDealFacts(): Promise<DealFact[]> {
+    const out: DealFact[] = [];
+    let from = 0;
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await supabase
+        .from('deal_facts')
+        .select('*')
+        .order('account_id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      out.push(...(data as DealFact[]));
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    return out;
+  }
+
+  const [channelsRes, metrics, recruitmentRes, dailyReps, scenarioRes, dealFacts] = await Promise.all([
     supabase.from('channels').select('*').order('sort_order'),
     fetchAllMetrics(),
     supabase
@@ -206,9 +229,79 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       .select('scenario_data')
       .eq('is_active_target', true)
       .maybeSingle(),
+    fetchAllDealFacts(),
   ]);
 
   const channels = (channelsRes.data ?? []) as Channel[];
+
+  // ---- deal_facts: the Sold ↔ Installed toggle ----
+  // One row per classified account carrying both its sold_date and the two
+  // install milestones (Install Completed for solar/battery/hvac, Roof Install
+  // Completed for roof). SOLD mode keeps reading the metric buckets unchanged
+  // (zero regression on the validated numbers); deal_facts power INSTALLED
+  // mode and the cross-milestone sub-lines. Until the first post-deploy
+  // re-upload populates the table, `useFacts` is false and installed mode
+  // falls back to the metric installs.
+  const useFacts = dealFacts.length > 0;
+  const factFlags = (f: DealFact): number =>
+    (f.is_solar ? 1 : 0) + (f.is_battery ? 1 : 0) + (f.is_roof ? 1 : 0) + (f.is_hvac ? 1 : 0);
+  const inWin = (d: string | null, s: string, e: string): boolean => !!d && d >= s && d <= e;
+  // An account is "installed in [s,e]" if any product hit its completion date
+  // there — solar/battery/hvac on install_date, roof on roof_install_date.
+  const installedInWin = (f: DealFact, s: string, e: string): boolean =>
+    inWin(f.install_date, s, e) || inWin(f.roof_install_date, s, e);
+
+  // Sold-mode sub-line: of the per-channel volume SOLD in [s,e], how much has
+  // installed (any product) — pull-through. Flag-sum to match the headline.
+  function factPullThrough(s: string, e: string): number {
+    let v = 0;
+    for (const f of dealFacts) {
+      if (f.sold_date >= s && f.sold_date <= e && (f.install_date || f.roof_install_date)) v += factFlags(f);
+    }
+    return v;
+  }
+  // Installed-mode volume: per product on ITS OWN completion date (mirrors the
+  // metric buckets, so it reconciles with the existing installs total). `sub`
+  // = the portion that was also SOLD within the same window.
+  function factInstalledVolume(s: string, e: string): { deals: number; sub: number } {
+    let deals = 0;
+    let sub = 0;
+    for (const f of dealFacts) {
+      const icIn = inWin(f.install_date, s, e);
+      const rcIn = inWin(f.roof_install_date, s, e);
+      const soldIn = f.sold_date >= s && f.sold_date <= e;
+      const add = (cond: boolean) => { if (cond) { deals += 1; if (soldIn) sub += 1; } };
+      add(!!f.is_solar && icIn);
+      add(!!f.is_battery && icIn);
+      add(!!f.is_hvac && icIn);
+      add(!!f.is_roof && rcIn);
+    }
+    return { deals, sub };
+  }
+  // Installed-mode Clean Deal % — among accounts installed in [s,e].
+  function factCleanDeal(s: string, e: string): { created: number; clean: number; override: number; pct: number | null } {
+    let created = 0, clean = 0, override = 0;
+    for (const f of dealFacts) {
+      if (!installedInWin(f, s, e)) continue;
+      created += 1;
+      if (f.is_clean) clean += 1;
+      if (f.is_clean && f.clean_via_participate) override += 1;
+    }
+    return { created, clean, override, pct: created > 0 ? clean / created : null };
+  }
+  // Installed-mode leaderboard — accounts installed in [s,e], by org.
+  function factLeaderboard(s: string, e: string): Array<{ org: string; deals: number }> {
+    const totals = new Map<string, number>();
+    for (const f of dealFacts) {
+      if (!installedInWin(f, s, e)) continue;
+      const org = f.dealer_org ? displayOrgLabel(f.dealer_org) : null;
+      if (!org) continue;
+      totals.set(org, (totals.get(org) ?? 0) + 1);
+    }
+    return Array.from(totals.entries())
+      .map(([org, deals]) => ({ org, deals }))
+      .sort((a, b) => b.deals - a.deals);
+  }
   const recruitment = (recruitmentRes.data ?? []) as Array<{
     period_start: string;
     period_end: string;
@@ -302,8 +395,10 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     return out;
   }
 
-  const orgLeaderboardYTD = orgLeaderboard(ytdStartIso, cumulativeEndIso).slice(0, 15);
-  const orgLeaderboardMTD = orgLeaderboard(mtdStartIso, cumulativeEndIso).slice(0, 15);
+  const leaderboardFor = (start: string, end: string) =>
+    (basis === 'installed' && useFacts ? factLeaderboard(start, end) : orgLeaderboard(start, end)).slice(0, 15);
+  const orgLeaderboardYTD = leaderboardFor(ytdStartIso, cumulativeEndIso);
+  const orgLeaderboardMTD = leaderboardFor(mtdStartIso, cumulativeEndIso);
 
   // All-products-combined volume — sum across every channel that represents
   // a customer-facing product/sale, including Inside Sales (closed_solar +
@@ -450,11 +545,35 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     return total;
   }
 
-  const prodLast = production(lastWeekStartIso, lastWeekEndIso);
-  const prodThis = production(thisWeekStartIso, todayIso);
-  const prodMTD = production(mtdStartIso, cumulativeEndIso);
-  const prodQTD = production(qtdStartIso, cumulativeEndIso);
+  // Revenue gap stays anchored to YTD installs (revenue realizes at install)
+  // and does NOT follow the toggle — so it keeps reading the metric buckets.
   const prodYTD = production(ytdStartIso, cumulativeEndIso);
+
+  // Combined Volume cards follow the Sold ↔ Installed toggle via deal_facts,
+  // falling back to the metric buckets (sold semantics) until the table is
+  // populated by the first re-upload.
+  const cardVol = (start: string, end: string): { deals: number; sub: number } => {
+    const p = production(start, end);
+    if (basis === 'sold') {
+      // Headline stays the metric "deals" (unchanged 2,140 etc.); sub-line is
+      // the install pull-through within the sold cohort.
+      return { deals: p.deals, sub: useFacts ? factPullThrough(start, end) : p.installs };
+    }
+    // Installed mode — per-product install volume from deal_facts; falls back
+    // to the metric installs total until the table is populated.
+    if (!useFacts) return { deals: p.installs, sub: 0 };
+    return factInstalledVolume(start, end);
+  };
+  const volLast = cardVol(lastWeekStartIso, lastWeekEndIso);
+  const volThis = cardVol(thisWeekStartIso, todayIso);
+  const volMTD = cardVol(mtdStartIso, cumulativeEndIso);
+  const volQTD = cardVol(qtdStartIso, cumulativeEndIso);
+  const volYTD = cardVol(ytdStartIso, cumulativeEndIso);
+  // Card labels follow the basis. Sub-line meaning: Sold → "of those sold,
+  // how many installed" (pull-through); Installed → "of those installed,
+  // how many were also sold in this window".
+  const primaryNoun = basis === 'sold' ? 'deals' : 'installs';
+  const subNoun = basis === 'sold' ? 'installed' : 'also sold';
 
   // Clean Deal % — total deals created vs. deals marked clean. Participate
   // Energy never backfills the Clean Deal Completed Date column, so the
@@ -476,9 +595,11 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     const override = Math.round(m.clean_deal_participate_override ?? 0);
     return { created, clean, override, pct: created > 0 ? clean / created : null };
   }
-  const cleanDealLastMonth = cleanDealRatio(lastMonthStartIso, lastMonthEndIso);
-  const cleanDealThisMonth = cleanDealRatio(mtdStartIso, cumulativeEndIso);
-  const cleanDealYTD       = cleanDealRatio(ytdStartIso, cumulativeEndIso);
+  const cleanDealFor = (start: string, end: string) =>
+    basis === 'installed' && useFacts ? factCleanDeal(start, end) : cleanDealRatio(start, end);
+  const cleanDealLastMonth = cleanDealFor(lastMonthStartIso, lastMonthEndIso);
+  const cleanDealThisMonth = cleanDealFor(mtdStartIso, cumulativeEndIso);
+  const cleanDealYTD       = cleanDealFor(ytdStartIso, cumulativeEndIso);
 
   // Roll up daily_rep_activity into per-month, per-org distinct rep
   // counts. Returns recharts-ready data (one row per month with one
@@ -613,43 +734,50 @@ export default async function DashboardPage({ searchParams }: PageProps) {
             Week ending <span className="num font-medium text-[var(--foreground)]">{weekEndingIso}</span>
           </p>
         </div>
-        <WeekPicker
-          current={weekEndingIso}
-          options={buildWeekOptions(weekEndingDate, 26)}
-        />
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+          <BasisToggle current={basis} />
+          <WeekPicker
+            current={weekEndingIso}
+            options={buildWeekOptions(weekEndingDate, 26)}
+          />
+        </div>
       </div>
 
       <section className="mb-10 anim-fade-rise stagger-1">
         <SectionHeader
           eyebrow="All Products"
           title="Combined volume — deals + installs"
-          subtitle="Solar+Storage + Battery Only + Roofing + HVAC · matches the Weekly Review's All Products Combined total"
+          subtitle={
+            basis === 'sold'
+              ? 'Accounts by sold date · sub-line = how many of that cohort have installed (pull-through)'
+              : 'Accounts by install-completed date · sub-line = how many were also sold in the same period'
+          }
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <ProductionCard
             label="Last Week"
             range={`${shortDate(lastWeekStartIso)}–${shortDate(lastWeekEndIso)}`}
-            deals={prodLast.deals} installs={prodLast.installs}
+            primary={volLast.deals} sub={volLast.sub} primaryNoun={primaryNoun} subNoun={subNoun}
           />
           <ProductionCard
             label="This Week"
             range={`${shortDate(thisWeekStartIso)}–${shortDate(todayIso)}`}
-            deals={prodThis.deals} installs={prodThis.installs}
+            primary={volThis.deals} sub={volThis.sub} primaryNoun={primaryNoun} subNoun={subNoun}
           />
           <ProductionCard
             label="MTD"
             range={`${shortDate(mtdStartIso)}–${shortDate(cumulativeEndIso)}`}
-            deals={prodMTD.deals} installs={prodMTD.installs}
+            primary={volMTD.deals} sub={volMTD.sub} primaryNoun={primaryNoun} subNoun={subNoun}
           />
           <ProductionCard
             label="QTD"
             range={`${shortDate(qtdStartIso)}–${shortDate(cumulativeEndIso)}`}
-            deals={prodQTD.deals} installs={prodQTD.installs}
+            primary={volQTD.deals} sub={volQTD.sub} primaryNoun={primaryNoun} subNoun={subNoun}
           />
           <ProductionCard
             label="YTD"
             range={`${shortDate(ytdStartIso)}–${shortDate(cumulativeEndIso)}`}
-            deals={prodYTD.deals} installs={prodYTD.installs} hero
+            primary={volYTD.deals} sub={volYTD.sub} primaryNoun={primaryNoun} subNoun={subNoun} hero
           />
         </div>
       </section>
@@ -875,14 +1003,18 @@ function shortDate(iso: string): string {
 function ProductionCard({
   label,
   range,
-  deals,
-  installs,
+  primary,
+  sub,
+  primaryNoun,
+  subNoun,
   hero,
 }: {
   label: string;
   range?: string;
-  deals: number;
-  installs: number;
+  primary: number;
+  sub: number;
+  primaryNoun: string;
+  subNoun: string;
   hero?: boolean;
 }) {
   return (
@@ -895,13 +1027,13 @@ function ProductionCard({
       )}
       <div className="flex items-baseline gap-3 mb-1">
         <span className={`num font-semibold text-[var(--ink)] ${hero ? 'text-5xl' : 'text-2xl'}`}>
-          {formatCount(deals)}
+          {formatCount(primary)}
         </span>
-        <span className="text-xs text-[var(--muted)]">deals</span>
+        <span className="text-xs text-[var(--muted)]">{primaryNoun}</span>
       </div>
       <div className={`num text-[var(--foreground)] ${hero ? 'text-base' : 'text-sm'}`}>
-        {formatCount(installs)}{' '}
-        <span className="text-[var(--muted)]">installs</span>
+        {formatCount(sub)}{' '}
+        <span className="text-[var(--muted)]">{subNoun}</span>
       </div>
     </div>
   );

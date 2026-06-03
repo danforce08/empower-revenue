@@ -220,11 +220,40 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Refresh deal_facts (one row per classified account) — drives the
+  // Dashboard's Sold ↔ Installed toggle. Upsert by account_id so re-uploads
+  // are idempotent; same continue-on-failure approach as daily_rep_activity.
+  const factRows = parsed.dealFacts ?? [];
+  let factFailures = 0;
+  if (factRows.length > 0) {
+    const CHUNK = 500;
+    for (let i = 0; i < factRows.length; i += CHUNK) {
+      const chunk = factRows.slice(i, i + CHUNK);
+      const { error: dfErr } = await supabase.from('deal_facts').upsert(chunk, {
+        onConflict: 'account_id',
+        ignoreDuplicates: false,
+      });
+      if (dfErr) {
+        factFailures++;
+        console.warn(
+          `[upload] deal_facts chunk ${i}-${i + chunk.length} failed: ${dfErr.message}`,
+        );
+        continue;
+      }
+    }
+  }
+
   const warnings = [...parsed.warnings];
   if (skippedCount > 0) warnings.push(`Skipped ${skippedCount} test/QA branch buckets`);
   if (chunkFailures > 0) {
     warnings.push(
       `${chunkFailures} daily_rep_activity chunk(s) failed to upsert — check function logs. ` +
+      `Other chunks landed; rerun upload to retry.`,
+    );
+  }
+  if (factFailures > 0) {
+    warnings.push(
+      `${factFailures} deal_facts chunk(s) failed to upsert — check function logs. ` +
       `Other chunks landed; rerun upload to retry.`,
     );
   }
