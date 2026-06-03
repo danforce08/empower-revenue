@@ -32,8 +32,8 @@ const CARD_HERO = 'rounded-2xl border-2 border-[var(--brand-cyan)] p-5 shadow-[0
 // sheet's Average Contract Value column. Used when no active scenario is
 // configured in the forecast tool.
 const REVENUE_PER_INSTALL_FALLBACK: Record<string, number> = {
-  total_sales: 40_000,   // Solar + Storage
-  battery_only: 25_000,  // Storage Only
+  total_sales: 50_000,   // Solar + Storage
+  battery_only: 50_000,  // Storage Only
   roof: 19_000,          // Roofing
   hvac: 21_000,          // HVAC New Install
 };
