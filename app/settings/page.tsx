@@ -1,6 +1,7 @@
 import { getSupabaseServer } from '@/lib/supabase/server';
 import type { Channel } from '@/lib/types';
 import { KindLabel } from '@/components/kind-label';
+import { OwnerCell } from '@/components/settings/owner-cell';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +25,9 @@ export default async function SettingsPage() {
         </p>
         <h1 className="text-3xl font-semibold tracking-tight text-[var(--ink)]">Settings</h1>
         <p className="text-sm text-[var(--muted)] mt-2">
-          Read-only summary. Edit channel config (Quantum allocations, owner labels,
-          metrics_schema) directly via Supabase Studio for now.
+          Edit each KPI&rsquo;s owner inline below — changes save immediately and
+          show up on the Weekly Review. Quantum allocations and metrics_schema
+          are still edited via Supabase Studio for now.
         </p>
       </div>
 
@@ -36,7 +38,7 @@ export default async function SettingsPage() {
               <Th>Key</Th>
               <Th>Name</Th>
               <Th>Kind</Th>
-              <Th>Owner</Th>
+              <Th>KPI Owner</Th>
               <Th align="right">Quantum (W / M)</Th>
             </tr>
           </thead>
@@ -49,7 +51,9 @@ export default async function SettingsPage() {
                 <Td className="num text-xs text-[var(--muted)]">{c.key}</Td>
                 <Td className="font-medium text-[var(--ink)]">{c.name}</Td>
                 <Td><KindLabel kind={c.kind} /></Td>
-                <Td>{c.owner_label ?? '—'}</Td>
+                <Td className="min-w-[240px]">
+                  <OwnerCell channelId={c.id} initialOwner={c.owner_label} />
+                </Td>
                 <Td align="right" className="num text-[var(--muted)]">
                   <span className="text-[var(--ink)] font-medium">{c.quantum_weekly}</span>
                   <span className="mx-1.5 text-[var(--border-strong)]">/</span>
