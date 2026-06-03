@@ -32,10 +32,11 @@ export default function UploadPage() {
     start(async () => {
       setStage('uploading');
       setProgress(0);
-      // Step 1: stream the file to a private Supabase Storage bucket directly
-      // from the browser. Bypasses Vercel's 4.5MB function body limit and
-      // sidesteps the @vercel/blob v2 CORS issue (the v2 client posts to
-      // vercel.com/api/blob which doesn't return CORS headers for our origin).
+      // Step 1: upload the file directly to a PRIVATE Supabase Storage bucket
+      // from the browser, authorized by a one-time signed upload token the
+      // server issues (service-role). The browser holds no Storage write
+      // grant, so the bucket has zero anon access. Direct-to-Storage still
+      // bypasses Vercel's 4.5MB function body limit.
       const supabase = getSupabaseBrowser();
       // Random prefix per upload so concurrent uploaders don't clobber and so
       // the file path itself acts as an unguessable token.
@@ -52,11 +53,20 @@ export default function UploadPage() {
       }, 400);
 
       try {
+        // Get a one-time signed upload token from the server (service-role).
+        const signRes = await fetch('/upload/sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+        const signJson = await signRes.json();
+        if (!signRes.ok) {
+          throw new Error(signJson.error ?? 'Could not authorize upload');
+        }
         const { error: upErr } = await supabase.storage
           .from('jobflo-uploads')
-          .upload(path, file, {
-            cacheControl: '60',
-            upsert: false,
+          .uploadToSignedUrl(signJson.path ?? path, signJson.token, file, {
+            upsert: true,
             contentType:
               file.name.endsWith('.csv')
                 ? 'text/csv'
